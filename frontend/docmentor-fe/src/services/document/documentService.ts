@@ -1,121 +1,277 @@
+import { documentApiService } from "@/services/api/documentApiService";
 import { Document } from "@/types/document.types";
 
-// Dữ liệu giả lập
-const mockDocuments: Document[] = [
-  {
-    id: "doc-001",
-    title: "Giáo trình Quản lý dự án CNTT",
-    type: "pdf",
+// ============================================================
+// TYPES
+// ============================================================
 
-    uploadDate: "2025-10-20T10:00:00.000Z",
-    fileSize: 5242880,
-    summary:
-      "Tài liệu cơ bản về các phương pháp quản lý dự án phần mềm hiện đại...",
-  },
-  {
-    id: "doc-002",
-    title: "Phân tích và Thiết kế hệ thống",
-    type: "docx",
-
-    uploadDate: "2025-10-18T15:30:00.000Z",
-    fileSize: 2097152,
-    summary:
-      "Hướng dẫn chi tiết về UML, use cases và thiết kế kiến trúc hệ thống.",
-  },
-  {
-    id: "doc-003",
-    title: "Slide bài giảng Flutter nâng cao",
-    type: "pptx",
-
-    uploadDate: "2025-10-15T09:00:00.000Z",
-    fileSize: 10485760,
-    summary:
-      "Các chủ đề nâng cao trong Flutter: State Management, Animation...",
-  },
-];
-
-interface GetDocumentsParams {
+interface GetDocumentsOptions {
   page?: number;
   limit?: number;
   query?: string;
+  sort_by?: "date_desc" | "date_asc" | "title_asc" | "size_asc" | "size_desc";
 }
-// ✅ BƯỚC 1: Tạo một hàm helper để xác định loại file từ tên
-const getFileTypeFromExtension = (filename: string): Document["type"] => {
-  const extension = filename.split(".").pop()?.toLowerCase();
-  switch (extension) {
-    case "pdf":
-      return "pdf";
-    case "docx":
-      return "docx";
-    case "pptx":
-      return "pptx";
-    case "txt":
-      return "txt";
-    default:
-      return "txt"; // Mặc định là file text nếu không nhận diện được
-  }
-};
+
+interface GetDocumentsResponse {
+  data: Document[];
+  total: number;
+}
+
+// ============================================================
+// MOCK MODE
+// ============================================================
+
+const USE_MOCK_MODE = false; // ✨ Set to false to use real API
+
+// ============================================================
+// DOCUMENT SERVICE
+// ============================================================
 
 export const documentService = {
-  getDocuments: async ({
-    page = 1,
-    limit = 10,
-    query = "",
-  }: GetDocumentsParams): Promise<{ data: Document[]; total: number }> => {
-    console.log(`(MOCK) Fetching documents with query: "${query}"`);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+  /**
+   * 📤 Upload a document
+   */
+  uploadDocument: async (file: File, title?: string): Promise<Document> => {
+    if (USE_MOCK_MODE) {
+      console.log("🎭 MOCK MODE: Upload document:", file.name);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    let filteredDocuments = [...mockDocuments];
-
-    if (query) {
-      filteredDocuments = filteredDocuments.filter((doc) =>
-        doc.title.toLowerCase().includes(query.toLowerCase())
-      );
+      return {
+        id: `doc-${Date.now()}`,
+        title: title || file.name,
+        type: file.type || "unknown",
+        fileSize: file.size,
+        uploadDate: new Date().toISOString(),
+        status: "processing",
+      };
     }
 
-    const total = filteredDocuments.length;
-    const start = (page - 1) * limit;
-    const end = start + limit;
+    try {
+      console.log("📤 Uploading document to backend:", file.name);
 
-    return {
-      data: filteredDocuments.slice(start, end),
-      total: total,
-    };
-  },
+      const response = await documentApiService.uploadDocument(file, title); // ✨ MAP: Convert API response (DocumentResponse) to Document type (local)
 
-  getDocumentById: async (id: string): Promise<Document | null> => {
-    console.log(`(MOCK) Fetching document with id: ${id}`);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const document = mockDocuments.find((doc) => doc.id === id);
-    return document || null;
-  },
+      const doc = response.document;
 
-  uploadDocument: async (file: File, title?: string): Promise<any> => {
-    console.log(`(MOCK) Uploading file: ${file.name}`);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    // Lấy loại file từ tên file thật
-    const fileType = getFileTypeFromExtension(file.name);
-    const newDoc: Document = {
-      id: `doc-${Date.now()}`,
-      title: title || file.name,
-      type: fileType, // <-- Gán loại file đã nhận diện được
-      uploadDate: new Date().toISOString(),
-      fileSize: file.size,
-      summary: "Tài liệu vừa được tải lên.",
-    };
-    mockDocuments.unshift(newDoc);
+      return {
+        id: doc.id,
+        title: doc.title,
+        type: doc.file_type,
+        fileSize: doc.file_size,
+        uploadDate: doc.created_at,
+        status: doc.processed ? "ready" : "processing",
+        file_path: doc.file_path,
+        processed: doc.processed,
+        metadata: doc.metadata_,
+      };
+    } catch (error) {
+      console.error("❌ Upload failed:", error);
+      throw error;
+    }
+  } /**
+   * 📋 Get user documents
+   */,
 
-    return { message: "Document uploaded successfully (mock)" };
-  },
-  deleteDocument: async (id: string): Promise<void> => {
-    console.log(`(MOCK) Deleting document with id: ${id}`);
-    await new Promise((resolve) => setTimeout(resolve, 500)); // Giả lập độ trễ mạng
+  getDocuments: async (
+    options?: GetDocumentsOptions
+  ): Promise<GetDocumentsResponse> => {
+    if (USE_MOCK_MODE) {
+      console.log("🎭 MOCK MODE: Get documents");
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const index = mockDocuments.findIndex((doc) => doc.id === id);
-    if (index > -1) {
-      mockDocuments.splice(index, 1); // Xóa 1 phần tử tại vị trí tìm thấy
-    } else {
-      console.warn(`(MOCK) Document with id ${id} not found for deletion.`);
+      return {
+        data: [],
+        total: 0,
+      };
+    }
+
+    try {
+      console.log("📤 Fetching documents:", options);
+
+      const skip = (options?.page || 1 - 1) * (options?.limit || 10);
+
+      const response = await documentApiService.getDocuments({
+        skip,
+        limit: options?.limit || 10,
+        search: options?.query,
+        sort_by: options?.sort_by,
+      }); // ✨ MAP: Convert API response to Document[]
+
+      const documents: Document[] = response.documents.map((doc) => ({
+        id: doc.id,
+        title: doc.title,
+        type: doc.file_type,
+        fileSize: doc.file_size,
+        uploadDate: doc.created_at,
+        status: doc.processed ? "ready" : "processing",
+        file_path: doc.file_path,
+        processed: doc.processed,
+        metadata: doc.metadata_,
+      }));
+
+      return {
+        data: documents,
+        total: response.total,
+      };
+    } catch (error) {
+      console.error("❌ Get documents failed:", error);
+      throw error;
+    }
+  } /**
+   * 🔍 Get single document
+   */,
+
+  getDocument: async (documentId: string): Promise<Document> => {
+    if (USE_MOCK_MODE) {
+      console.log("🎭 MOCK MODE: Get document:", documentId);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      return {
+        id: documentId,
+        title: "Mock Document",
+        type: "pdf",
+        fileSize: 1024000,
+        uploadDate: new Date().toISOString(),
+        status: "ready",
+      };
+    }
+
+    try {
+      console.log("📤 Fetching document:", documentId);
+
+      const response = await documentApiService.getDocument(documentId); // ✨ MAP: Convert API response to Document
+
+      return {
+        id: response.id,
+        title: response.title,
+        type: response.file_type,
+        fileSize: response.file_size,
+        uploadDate: response.created_at,
+        status: response.processed ? "ready" : "processing",
+        file_path: response.file_path,
+        processed: response.processed,
+        metadata: response.metadata_,
+      };
+    } catch (error) {
+      console.error("❌ Get document failed:", error);
+      throw error;
+    }
+  } /**
+   * ✏️ Rename document
+   */,
+
+  renameDocument: async (
+    documentId: string,
+    newTitle: string
+  ): Promise<Document> => {
+    if (USE_MOCK_MODE) {
+      console.log("🎭 MOCK MODE: Rename document:", documentId, newTitle);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      return {
+        id: documentId,
+        title: newTitle,
+        type: "pdf",
+        fileSize: 1024000,
+        uploadDate: new Date().toISOString(),
+        status: "ready",
+      };
+    }
+
+    try {
+      console.log("📤 Renaming document:", { documentId, newTitle });
+
+      const response = await documentApiService.updateDocument(
+        documentId,
+        newTitle
+      ); // ✨ MAP: Convert API response to Document
+
+      return {
+        id: response.id,
+        title: response.title,
+        type: response.file_type,
+        fileSize: response.file_size,
+        uploadDate: response.created_at,
+        status: response.processed ? "ready" : "processing",
+        file_path: response.file_path,
+        processed: response.processed,
+        metadata: response.metadata_,
+      };
+    } catch (error) {
+      console.error("❌ Rename document failed:", error);
+      throw error;
+    }
+  } /**
+   * 🗑️ Delete document
+   */,
+
+  deleteDocument: async (documentId: string): Promise<void> => {
+    if (USE_MOCK_MODE) {
+      console.log("🎭 MOCK MODE: Delete document:", documentId);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return;
+    }
+
+    try {
+      console.log("📤 Deleting document:", documentId);
+      await documentApiService.deleteDocument(documentId);
+      console.log("✓ Document deleted:", documentId);
+    } catch (error) {
+      console.error("❌ Delete document failed:", error);
+      throw error;
+    }
+  } /**
+   * 📊 Get document statistics
+   */,
+
+  getDocumentStats: async () => {
+    if (USE_MOCK_MODE) {
+      console.log("🎭 MOCK MODE: Get document stats");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      return {
+        total_documents: 5,
+        total_size: 5242880,
+        by_type: { pdf: 3, docx: 2 },
+        processed_count: 5,
+        unprocessed_count: 0,
+      };
+    }
+
+    try {
+      console.log("📤 Fetching document stats");
+      return await documentApiService.getDocumentStats();
+    } catch (error) {
+      console.error("❌ Get stats failed:", error);
+      return {
+        total_documents: 0,
+        total_size: 0,
+        by_type: {},
+        processed_count: 0,
+        unprocessed_count: 0,
+      };
+    }
+  } /**
+   * 📁 Search documents
+   */,
+
+  searchDocuments: async (query: string): Promise<GetDocumentsResponse> => {
+    if (USE_MOCK_MODE) {
+      console.log("🎭 MOCK MODE: Search documents:", query);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      return {
+        data: [],
+        total: 0,
+      };
+    }
+
+    try {
+      console.log("📤 Searching documents:", query);
+      return await documentService.getDocuments({ query });
+    } catch (error) {
+      console.error("❌ Search documents failed:", error);
+      throw error;
     }
   },
 };
