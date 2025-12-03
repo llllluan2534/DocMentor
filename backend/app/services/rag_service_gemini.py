@@ -103,10 +103,10 @@ class RAGServiceGemini:
                 query_text=query_text,
                 response_text=answer,
                 sources=[{
-                    'document_id': s['document_id'],
-                    'chunk_index': s['chunk_index'],
-                    'score': s['similarity_score']
-                } for s in sources],
+                    'document_id': m['document_id'],
+                    'chunk_index': m['chunk_index'],  
+                    'score': m['score']
+                } for m in matches], 
                 execution_time=int((time.time() - start_time) * 1000)
             )
             db.add(query_record)
