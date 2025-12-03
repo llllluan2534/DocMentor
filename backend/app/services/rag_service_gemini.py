@@ -8,15 +8,17 @@ from ..models.user import User
 from .embedding_service_gemini import EmbeddingServiceGemini
 from .gemini_service import GeminiService
 from ..utils.text_normalizer import normalize_text
+from ..utils.prompts import (
+    SYSTEM_INSTRUCTION,
+    RAG_QUERY_TEMPLATE,
+    format_context,
+    NO_RESULT_RESPONSE
+)
 
 logger = logging.getLogger(__name__)
 
 class RAGServiceGemini:
-    """
-    RAG Service using:
-    - Local Sentence-Transformers for embeddings
-    - Google Gemini for answer generation
-    """
+    """RAG Service using optimized prompts"""
 
     def __init__(self):
         self.embedding_service = EmbeddingServiceGemini()
@@ -30,21 +32,19 @@ class RAGServiceGemini:
         document_ids: List[int],
         max_results: int = 5
     ) -> Dict[str, Any]:
-
+        """Main RAG pipeline with optimized prompts"""
         start_time = time.time()
 
         try:
             logger.info(f"🔍 Processing query from user {user.id}: '{query_text}'")
 
-            # -------------------------------------------------------
-            # 1️⃣ Validate available & processed documents
-            # -------------------------------------------------------
+            # Step 1: Validate documents
             documents = db.query(Document).filter(
                 Document.id.in_(document_ids),
                 Document.user_id == user.id,
                 Document.processed == True
             ).all()
-
+            
             if not documents:
                 return {
                     'answer': "Không tìm thấy tài liệu phù hợp hoặc tài liệu chưa được xử lý.",
@@ -52,75 +52,70 @@ class RAGServiceGemini:
                     'confidence_score': 0.0,
                     'processing_time_ms': int((time.time() - start_time) * 1000)
                 }
-
+            
             valid_doc_ids = [doc.id for doc in documents]
             doc_map = {doc.id: doc for doc in documents}
-
-            # -------------------------------------------------------
-            # 2️⃣ Search similar chunks using vector DB
-            # -------------------------------------------------------
-            logger.info("🔎 Searching in vector database...")
+            
+            # Step 2: Search similar chunks
+            logger.info(f"🔎 Searching in vector database...")
             matches = await self.embedding_service.search_similar_chunks(
                 query=query_text,
                 document_ids=valid_doc_ids,
                 top_k=max_results
             )
-
+            
             if not matches or matches[0]['score'] < 0.3:
                 return {
-                    'answer': self._generate_no_result_response(query_text),
+                    'answer': NO_RESULT_RESPONSE.format(query=query_text),
                     'sources': [],
                     'confidence_score': 0.0,
                     'processing_time_ms': int((time.time() - start_time) * 1000)
                 }
-
-            # -------------------------------------------------------
-            # 3️⃣ Build context from top chunks
-            # -------------------------------------------------------
+            
+            # Step 3: Build context với format mới ✅
             logger.info(f"📝 Building context from {len(matches)} chunks...")
-            context = self._build_context(matches, doc_map)
-
-            # -------------------------------------------------------
-            # 4️⃣ Generate final answer using Gemini
-            # -------------------------------------------------------
-            logger.info("🤖 Generating answer with Gemini...")
-            answer = await self.gemini_service.generate_answer(query_text, context)
-
-            # -------------------------------------------------------
-            # 5️⃣ Format sources for response
-            # -------------------------------------------------------
+            context = format_context(matches, doc_map)
+            
+            # Step 4: Generate answer với prompt template mới ✅
+            logger.info(f"🤖 Generating answer with optimized prompt...")
+            prompt = RAG_QUERY_TEMPLATE.format(
+                context=context,
+                question=query_text
+            )
+            
+            # Call Gemini với system instruction
+            answer = await self.gemini_service.generate_answer(
+                query=query_text,
+                context=context,
+                system_instruction=SYSTEM_INSTRUCTION
+            )
+            
+            # Step 5: Prepare sources
             sources = self._format_sources(matches, doc_map)
-
-            # -------------------------------------------------------
-            # 6️⃣ Compute confidence score
-            # -------------------------------------------------------
+            
+            # Step 6: Calculate confidence
             avg_similarity = sum(m['score'] for m in matches) / len(matches)
             confidence_score = min(avg_similarity * 1.5, 1.0)
-
-            # -------------------------------------------------------
-            # 7️⃣ Save query record to DB
-            # -------------------------------------------------------
-            processing_time = int((time.time() - start_time) * 1000)
-
-            # ✅ LƯU ĐÚNG CẤU TRÚC THEO SourceSchema
+            
+            # Step 7: Save query
             query_record = QueryModel(
                 user_id=user.id,
                 query_text=query_text,
-                normalized_query=normalize_text(query_text),
                 response_text=answer,
-                sources=sources,  # ✅ Lưu toàn bộ sources đã format
-                execution_time=processing_time
+                sources=[{
+                    'document_id': s['document_id'],
+                    'chunk_index': s['chunk_index'],
+                    'score': s['similarity_score']
+                } for s in sources],
+                execution_time=int((time.time() - start_time) * 1000)
             )
-
             db.add(query_record)
             db.commit()
             db.refresh(query_record)
-
+            
+            processing_time = int((time.time() - start_time) * 1000)
             logger.info(f"✅ Query completed in {processing_time}ms")
-
-            # -------------------------------------------------------
-            # 8️⃣ Return response for API
-            # -------------------------------------------------------
+            
             return {
                 'query_id': query_record.id,
                 'answer': answer,
@@ -128,7 +123,7 @@ class RAGServiceGemini:
                 'confidence_score': round(confidence_score, 2),
                 'processing_time_ms': processing_time
             }
-
+            
         except Exception as e:
             logger.error(f"❌ Error in RAG pipeline: {str(e)}")
             raise

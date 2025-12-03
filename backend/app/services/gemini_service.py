@@ -58,32 +58,45 @@ class GeminiService:
         context: str,
         system_instruction: str = None
     ) -> str:
-        """Generate answer using Gemini based on context"""
+        """Generate answer using Gemini with system instruction"""
         try:
-            prompt = f"""Bạn là trợ giảng AI. Trả lời dựa trên context.
-
-CONTEXT:
-{context[:8000]}
-
-CÂU HỎI: {query}
-
-TRẢ LỜI (ngắn gọn):"""
-
-            response = self.chat_model.generate_content(
+            # Use system instruction nếu được cung cấp
+            if system_instruction:
+                # Tạo model với system instruction
+                model = genai.GenerativeModel(
+                    'models/gemini-2.5-flash',
+                    system_instruction=system_instruction
+                )
+            else:
+                model = self.chat_model
+            
+            # Build prompt từ template
+            from ..utils.prompts import RAG_QUERY_TEMPLATE
+            prompt = RAG_QUERY_TEMPLATE.format(
+                context=context,
+                question=query
+            )
+            
+            logger.info("🤖 Generating answer with Gemini 2.5 Flash...")
+            
+            response = model.generate_content(
                 prompt,
-                safety_settings=self.safety_settings,
                 generation_config={
                     'temperature': 0.3,
+                    'top_p': 0.8,
+                    'top_k': 40,
                     'max_output_tokens': 1024,
                 }
             )
             
-            answer = self._safe_get_text(response)
-            return answer if answer else "Không thể tạo câu trả lời. Vui lòng thử lại."
+            answer = response.text.strip()
+            logger.info(f"✅ Answer generated: {len(answer)} characters")
+            
+            return answer
             
         except Exception as e:
-            logger.error(f"❌ Error: {str(e)}")
-            return f"Lỗi: {str(e)[:100]}"
+            logger.error(f"❌ Error generating answer: {str(e)}")
+            raise
     
     async def generate_summary(self, text: str, length: str = "medium") -> str:
         """Generate summary of document"""
