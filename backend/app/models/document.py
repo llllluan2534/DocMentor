@@ -38,25 +38,25 @@ class Query(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-
+    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)  # ✅ THÊM
+    
     query_text = Column(Text, nullable=False)
     response_text = Column(Text, nullable=True)
     normalized_query = Column(String, index=True) 
     sources = Column(JSON, default=None)
-
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     execution_time = Column(Integer, nullable=True)
-
     rating = Column(Float, nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="queries")
+    conversation = relationship("Conversation", back_populates="queries")  # ✅ THÊM
     feedback = relationship("Feedback", uselist=False, back_populates="query")
-    conversations = relationship(  # ✅ NEW
+    conversations = relationship(
         "Conversation",
         secondary="conversation_queries",
         back_populates="queries"
     )
 
     def __repr__(self):
-        return f"<Query(id={self.id}, user_id={self.user_id}, rating={self.rating})>"
+        return f"<Query(id={self.id}, user_id={self.user_id}, conversation_id={self.conversation_id})>"

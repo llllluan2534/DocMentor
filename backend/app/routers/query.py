@@ -7,7 +7,7 @@ from typing import List, Optional, Any, Dict
 
 from ..database import get_db
 from ..models.feedback import Feedback
-from ..models.conversation import Conversation  # ✅ NEW IMPORT
+from ..models.conversation import Conversation, conversation_queries  # ✅ IMPORT conversation_queries
 from ..schemas.query import (
     QueryRequest,
     QueryResponse,
@@ -18,33 +18,33 @@ from ..schemas.query import (
 from ..services.rag_service_gemini import RAGServiceGemini
 from ..utils.security import get_current_user
 from ..models.user import User
-from ..models.document import Query as QueryModel
-from app.schemas import query
+from ..models.document import Query as QueryModel, Document  # ✅ IMPORT Document
+from ..models.conversation import conversation_documents  # ✅ IMPORT conversation_documents
 
 router = APIRouter(prefix="/query", tags=["Query & RAG"])
 
 
 # -------------------------------
-# 1) Query documents with CONVERSATION SUPPORT
+# 1) Query documents with CONVERSATION SUPPORT - FIXED
 # -------------------------------
 @router.post("/", response_model=QueryResponse)
 async def query_documents(
-    request: QueryRequest,
-    conversation_id: Optional[int] = QueryParam(None),  # ✅ NEW PARAMETER
+    request: QueryRequest,  # ✅ Lấy conversation_id từ body, không từ query param
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Query tài liệu với AI (Gemini).
     
-    ✅ NEW: Nếu cung cấp conversation_id, query sẽ được thêm vào conversation đó.
+    ✅ NEW: Nếu cung cấp conversation_id trong request body, query sẽ được thêm vào conversation đó.
     """
     rag_service = RAGServiceGemini()
 
     # ✅ Validate conversation nếu được cung cấp
-    if conversation_id:
+    conversation = None
+    if request.conversation_id:
         conversation = db.query(Conversation).filter(
-            Conversation.id == conversation_id,
+            Conversation.id == request.conversation_id,
             Conversation.user_id == current_user.id
         ).first()
         
@@ -76,20 +76,64 @@ async def query_documents(
         }
 
     # ✅ NEW: Add query to conversation if conversation_id provided
-    if conversation_id and result.get("query_id"):
+    if request.conversation_id and result.get("query_id"):
         try:
             # Get the created query
             query = db.query(QueryModel).filter(QueryModel.id == result["query_id"]).first()
             
-            if query:
-                # Add query to conversation
-                conversation.queries.append(query)
+            if query and conversation:
+                # ✅ THÊM: Cập nhật conversation_id trong query
+                query.conversation_id = request.conversation_id
+                
+                # ✅ THÊM: Add query to conversation through many-to-many
+                # Kiểm tra nếu chưa có trong conversation
+                existing_link = db.execute(
+                    conversation_queries.select().where(
+                        conversation_queries.c.conversation_id == request.conversation_id,
+                        conversation_queries.c.query_id == query.id
+                    )
+                ).first()
+                
+                if not existing_link:
+                    # Thêm vào conversation_queries
+                    insert_stmt = conversation_queries.insert().values(
+                        conversation_id=request.conversation_id,
+                        query_id=query.id,
+                        order=len(conversation.queries),  # Thứ tự tiếp theo
+                        added_at=datetime.utcnow()
+                    )
+                    db.execute(insert_stmt)
+                
+                # ✅ THÊM: Add documents to conversation if not already added
+                for doc_id in request.document_ids:
+                    # Kiểm tra document có tồn tại không
+                    doc = db.query(Document).filter(
+                        Document.id == doc_id,
+                        Document.user_id == current_user.id
+                    ).first()
+                    
+                    if doc:
+                        # Kiểm tra nếu chưa có trong conversation_documents
+                        existing_doc_link = db.execute(
+                            conversation_documents.select().where(
+                                conversation_documents.c.conversation_id == request.conversation_id,
+                                conversation_documents.c.document_id == doc.id
+                            )
+                        ).first()
+                        
+                        if not existing_doc_link:
+                            insert_doc_stmt = conversation_documents.insert().values(
+                                conversation_id=request.conversation_id,
+                                document_id=doc.id,
+                                added_at=datetime.utcnow()
+                            )
+                            db.execute(insert_doc_stmt)
                 
                 # Update conversation's updated_at timestamp
                 conversation.updated_at = datetime.utcnow()
                 
                 db.commit()
-                print(f"✅ Added query {query.id} to conversation {conversation_id}")
+                print(f"✅ Added query {query.id} to conversation {request.conversation_id}")
         except Exception as e:
             print(f"⚠️ Failed to add query to conversation: {e}")
             # Don't fail the whole request if conversation link fails
@@ -108,7 +152,7 @@ async def query_documents(
 
 
 # -------------------------------
-# 2) Get history with filters (UNCHANGED)
+# 2) Get history with filters - UPDATED to include conversation_id
 # -------------------------------
 @router.get("/history", response_model=QueryHistory)
 def get_query_history(
@@ -119,6 +163,7 @@ def get_query_history(
     search: Optional[str] = QueryParam(None),
     sort_by: Optional[str] = QueryParam("date", regex="^(date|rating|relevance)$"),
     order: Optional[str] = QueryParam("desc", regex="^(asc|desc)$"),
+    conversation_id: Optional[int] = QueryParam(None),  # ✅ NEW: Filter by conversation
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -129,8 +174,26 @@ def get_query_history(
       - text search (ILIKE)
       - sort_by: date|rating|relevance
       - order: asc|desc
+      - conversation_id: filter by conversation (NEW)
     """
     q = db.query(QueryModel).filter(QueryModel.user_id == current_user.id)
+    
+    # ✅ NEW: Filter by conversation_id if provided
+    if conversation_id:
+        # Verify conversation belongs to user
+        conversation = db.query(Conversation).filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id
+        ).first()
+        
+        if not conversation:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found or not owned by you"
+            )
+        
+        # Filter queries by conversation_id
+        q = q.filter(QueryModel.conversation_id == conversation_id)
 
     # parse/filter dates
     try:
@@ -210,7 +273,7 @@ def get_query_history(
 
 
 # -------------------------------
-# 3) Get query detail (UNCHANGED)
+# 3) Get query detail - UPDATED to include conversation info
 # -------------------------------
 @router.get("/{query_id}", response_model=QueryResponse)
 def get_query_detail(
@@ -258,6 +321,9 @@ def get_query_detail(
         "confidence_score": 0.0,
         "created_at": query.created_at,
     }
+
+
+# ... (phần còn lại của file giữ nguyên)
 
 
 # -------------------------------

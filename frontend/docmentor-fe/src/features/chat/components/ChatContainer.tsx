@@ -90,13 +90,17 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       return;
     }
 
-    console.log("📤 Sending message:", { messageText, hasFile: !!file, contextId });
+    console.log("📤 Sending message:", {
+      messageText,
+      hasFile: !!file,
+      contextId,
+    });
     setIsReplying(true);
 
     // ✅ CASE 1: Đã có conversation - gửi tin nhắn bình thường
     if (contextId && messages.length > 0) {
       console.log("📝 Sending to existing conversation:", contextId);
-      
+
       if (file) {
         await handleSendMessageWithFile(messageText, file);
       } else {
@@ -113,7 +117,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     if (file) {
       try {
         console.log("📂 Uploading file:", file.name);
-        const uploadedDoc = await documentService.uploadDocument(file, file.name);
+        const uploadedDoc = await documentService.uploadDocument(
+          file,
+          file.name
+        );
         uploadedDocId = Number(uploadedDoc.id);
         console.log("✅ File uploaded, ID:", uploadedDocId);
       } catch (error) {
@@ -128,12 +135,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       // Guest session
       try {
         console.log("👤 Creating guest session");
-        const { sessionId: newSessionId } = await chatService.startGuestSession({
-          message: messageText,
-          file: file || undefined,
-        });
+        const { sessionId: newSessionId } = await chatService.startGuestSession(
+          {
+            message: messageText,
+            file: file || undefined,
+          }
+        );
         setSearchParams({ sessionId: newSessionId });
-        
+
         // Load messages sau khi tạo
         const history = await chatService.getChatHistory(newSessionId);
         setMessages(history);
@@ -147,7 +156,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       // User conversation
       try {
         console.log("👤 Creating user conversation");
-        
+
         // Tổng hợp document IDs
         const docIds = selectedDocuments
           .map((d) => parseInt(d.id, 10))
@@ -193,7 +202,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     }
   };
 
-  // ✅ FIX: Gửi tin nhắn với file trong conversation hiện tại
   const handleSendMessageWithFile = async (messageText: string, file: File) => {
     const userMessage: ChatMessage = {
       id: `msg-user-${Date.now()}`,
@@ -216,27 +224,28 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       const uploadedDoc = await documentService.uploadDocument(file, file.name);
       const uploadedDocId = Number(uploadedDoc.id);
 
-      // Tổng hợp IDs
+      // ✅ CHỈ lấy IDs từ selectedDocuments
       const docIds = selectedDocuments
         .map((d) => parseInt(d.id, 10))
         .filter((id) => !isNaN(id));
 
-      if (conversationId) {
-        const convIdNum = parseInt(conversationId, 10);
-        if (!isNaN(convIdNum)) docIds.push(convIdNum);
-      }
-
+      // ✅ KHÔNG thêm conversationId vào docIds
       if (!isNaN(uploadedDocId)) {
         docIds.push(uploadedDocId);
       }
 
       console.log("📤 Sending query with docs:", docIds);
 
-      // Gửi query
+      // ✅ Truyền conversationId riêng
+      const currentConvId = conversationId
+        ? parseInt(conversationId, 10)
+        : undefined;
+
       const response = await queryApiService.sendQuery(
         messageText || `Phân tích file: ${file.name}`,
-        docIds,
-        5
+        docIds, // ✅ Chỉ document IDs
+        5,
+        currentConvId // ✅ Conversation ID riêng
       );
 
       // Update user message
@@ -268,7 +277,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     }
   };
 
-  // ✅ FIX: Gửi text-only trong conversation hiện tại
   const handleSendMessageTextOnly = async (messageText: string) => {
     const userMessage: ChatMessage = {
       id: `msg-user-${Date.now()}`,
@@ -281,19 +289,24 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      // Tổng hợp document IDs
+      // ✅ CHỈ lấy IDs từ selectedDocuments, KHÔNG thêm conversationId
       const docIds = selectedDocuments
         .map((d) => parseInt(d.id, 10))
         .filter((id) => !isNaN(id));
 
-      if (conversationId) {
-        const convIdNum = parseInt(conversationId, 10);
-        if (!isNaN(convIdNum)) docIds.push(convIdNum);
-      }
-
       console.log("📤 Sending text query with docs:", docIds);
 
-      const response = await queryApiService.sendQuery(messageText, docIds, 5);
+      // ✅ Truyền conversationId riêng biệt
+      const currentConvId = conversationId
+        ? parseInt(conversationId, 10)
+        : undefined;
+
+      const response = await queryApiService.sendQuery(
+        messageText,
+        docIds, // ✅ Chỉ document IDs
+        5,
+        currentConvId // ✅ Conversation ID riêng
+      );
 
       // Add AI response
       const aiMessage: ChatMessage = {

@@ -96,11 +96,11 @@ const convertToChatMessages = (query: QueryResponse): ChatMessage[] => {
 // ============================================================
 
 export const chatService = {
-  // ✨ UPDATED: Query Documents - Sử dụng queryApiService
   queryDocuments: async (payload: {
     message: string;
     file?: File;
     docIds?: string[];
+    conversationId?: number;
   }): Promise<QueryResponse> => {
     try {
       if (USE_MOCK_MODE) {
@@ -169,6 +169,12 @@ export const chatService = {
     }
 
     try {
+      // ✅ Xử lý ID local bắt đầu bằng "conv-"
+      if (conversationId.startsWith("conv-")) {
+        console.warn("⚠️ Local conversation ID detected:", conversationId);
+        return []; // Trả về rỗng cho conversation local
+      }
+
       // ✨ REAL API: Get query detail từ backend
       const queryId = parseInt(conversationId, 10);
       if (isNaN(queryId)) {
@@ -182,7 +188,8 @@ export const chatService = {
       console.error("❌ Get chat history error:", error);
       return [];
     }
-  }, // ✨ UPDATED: Send Message
+  },
+
 
   sendMessage: async (
     _conversationId: string,

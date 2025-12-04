@@ -4,19 +4,35 @@ from typing import List, Dict, Any, Optional
 import re
 
 
-
 # ============================================================
 # REQUEST SCHEMAS
 # ============================================================
 
 class QueryRequest(BaseModel):
-    query_text: str = Field(..., min_length=5, max_length=500)
-    document_ids: List[int] = Field(..., min_items=1)
+    query_text: str = Field(..., min_length=1, max_length=500)  # ✅ Sửa min_length từ 5 xuống 1
+    document_ids: List[int] = Field(default=[])  # ✅ Sửa: không bắt buộc, mặc định rỗng
     max_results: int = Field(default=5, ge=1, le=10)
+    conversation_id: Optional[int] = None  # ✅ THÊM: conversation_id trong body
+
+    @field_validator("document_ids")
+    @classmethod
+    def validate_document_ids(cls, v):
+        # ✅ Loại bỏ các ID không hợp lệ
+        if v is None:
+            return []
+        return [doc_id for doc_id in v if isinstance(doc_id, int) and doc_id > 0]
+    
+    @field_validator("query_text")
+    @classmethod
+    def clean_query_text(cls, v):
+        if v:
+            v = re.sub(r"<[^>]*>", "", v)
+            v = v.strip()
+        return v
 
 
 # ============================================================
-# FEEDBACK SCHEMAS
+# FEEDBACK SCHEMAS (giữ nguyên)
 # ============================================================
 
 class QueryFeedbackBase(BaseModel):

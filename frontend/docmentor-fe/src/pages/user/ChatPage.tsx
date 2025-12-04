@@ -125,14 +125,25 @@ const ChatPage: React.FC = () => {
     setConversations(data);
   };
 
-  const handleNewConversation = () => {
-    const newConv: Conversation = {
-      id: `conv-${Date.now()}`,
-      title: "Cuộc trò chuyện mới",
-      createdAt: new Date().toISOString(),
-    };
-    setConversations((prev) => [newConv, ...prev]);
-    setActiveConversationId(newConv.id);
+  const handleNewConversation = async () => {
+    try {
+      console.log("🆕 Creating new conversation from sidebar");
+
+      // Tạo conversation với message rỗng
+      const newConv = await chatService.createNewConversation({
+        title: "Cuộc trò chuyện mới",
+        initialMessage: "Xin chào!",
+        documentIds: [],
+      });
+
+      console.log("✅ Conversation created:", newConv.id);
+      setConversations((prev) => [newConv, ...prev]);
+      setActiveConversationId(newConv.id);
+      navigate(`/user/chat/${newConv.id}`, { replace: true });
+    } catch (error) {
+      console.error("❌ Create conversation error:", error);
+      alert("Không thể tạo cuộc trò chuyện mới.");
+    }
   };
 
   const handleDeleteConversation = async (id: string) => {
@@ -197,10 +208,9 @@ const ChatPage: React.FC = () => {
     documents: Array<{ id: string; title: string }>
   ) => {
     setSelectedDocuments(documents);
-    setIsDocumentModalOpen(false); // FIX: Gọi hàm tạo conversation mới ngay sau khi chọn tài liệu
+    setIsDocumentModalOpen(false);
 
-    const docIds = documents.map((d) => d.id);
-    handleNewConversationWithDocs(docIds);
+    console.log("Documents selected:", documents);
   }; // ✨ THÊM: Handler để remove document
 
   const handleRemoveDocument = (docId: string) => {
@@ -212,10 +222,10 @@ const ChatPage: React.FC = () => {
             {/* Background */}     {" "}
       <div className="fixed inset-0 pointer-events-none">
                {" "}
-        <div className="absolute top-0 left-0 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-float"></div>
+        <div className="absolute top-0 left-0 rounded-full w-96 h-96 bg-primary/10 blur-3xl animate-float"></div>
                {" "}
         <div
-          className="absolute bottom-0 right-0 w-96 h-96 bg-secondary/10 rounded-full blur-3xl animate-float"
+          className="absolute bottom-0 right-0 rounded-full w-96 h-96 bg-secondary/10 blur-3xl animate-float"
           style={{ animationDelay: "2s" }}
         ></div>
              {" "}
@@ -224,7 +234,7 @@ const ChatPage: React.FC = () => {
       {/* ✨ CHỈ HIỂN THỊ SIDEBAR KHI USER LOGIN VÀ KHÔNG PHẢI GUEST CHAT */}   
        {" "}
       {showSidebar && (
-        <div className="relative z-10 animate-slide-in-left w-80 flex-shrink-0">
+        <div className="relative z-10 flex-shrink-0 animate-slide-in-left w-80">
                    {" "}
           <ChatSidebar
             conversations={conversations}
