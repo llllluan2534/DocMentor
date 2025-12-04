@@ -61,7 +61,7 @@ class DocumentProcessor:
                 chunks_with_metadata.append({
                     'text': chunk_text,
                     'chunk_index': idx,
-                    'page_number': 0,
+                    'page_number': self._extract_page_number_from_text(chunk_text),
                     'metadata': {
                         'file_type': document.file_type,
                         'title': document.title
@@ -172,3 +172,12 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"❌ Error extracting TXT: {str(e)}")
             raise
+        
+    def _extract_page_number_from_text(self, chunk_text: str) -> int:
+        """Extract page number from [Page X] marker in text"""
+        import re
+        
+        match = re.search(r'\[Page (\d+)\]', chunk_text)
+        if match:
+            return int(match.group(1))
+        return 0
