@@ -92,7 +92,7 @@ class QueryApiService {
       withCredentials: true,
     });
 
-    // ✨ Request Interceptor - Add Auth Token
+    // Request Interceptor
     this.axiosInstance.interceptors.request.use(
       (config) => {
         const token = this.getAuthToken();
@@ -107,7 +107,7 @@ class QueryApiService {
       }
     );
 
-    // ✨ Response Interceptor - Handle Errors
+    // Response Interceptor
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       (error: AxiosError) => {
@@ -120,10 +120,8 @@ class QueryApiService {
 
         console.error("API Error:", apiError);
 
-        // Handle 401 Unauthorized
         if (error.response?.status === 401) {
           console.warn("Unauthorized: redirecting to login");
-          // TODO: Redirect to login page
           localStorage.removeItem("auth_token");
           sessionStorage.removeItem("auth_token");
         }
@@ -132,10 +130,6 @@ class QueryApiService {
       }
     );
   }
-
-  // ============================================================
-  // HELPER METHODS
-  // ============================================================
 
   private getAuthToken(): string | null {
     return (
@@ -154,22 +148,28 @@ class QueryApiService {
     };
   }
 
-  // ============================================================
-  // QUERY OPERATIONS
-  // ============================================================
-
   /**
-   * 📝 Send a query to AI/RAG service
+   * ✅ UPDATED: Send query with optional conversation_id
    */
   async sendQuery(
     queryText: string,
     documentIds: number[],
-    maxResults: number = 5
+    maxResults: number = 5,
+    conversationId?: number // ✅ NEW PARAMETER
   ): Promise<QueryResponse> {
     try {
-      console.log("📤 Sending query:", { queryText, documentIds });
+      console.log("📤 Sending query:", {
+        queryText,
+        documentIds,
+        conversationId,
+      });
 
-      const response = await this.axiosInstance.post<QueryResponse>("/query/", {
+      // ✅ Add conversation_id as query parameter if provided
+      const url = conversationId
+        ? `/query/?conversation_id=${conversationId}`
+        : "/query/";
+
+      const response = await this.axiosInstance.post<QueryResponse>(url, {
         query_text: queryText,
         document_ids: documentIds,
         max_results: maxResults,
@@ -183,9 +183,8 @@ class QueryApiService {
     }
   }
 
-  /**
-   * 📋 Get query history with filters and pagination
-   */
+  // ... other methods remain unchanged ...
+
   async getQueryHistory(params?: HistoryParams): Promise<QueryHistory> {
     try {
       console.log("📤 Fetching query history:", params);
@@ -213,9 +212,6 @@ class QueryApiService {
     }
   }
 
-  /**
-   * 🔍 Get details of a single query
-   */
   async getQueryDetail(queryId: number): Promise<QueryResponse> {
     try {
       console.log("📤 Fetching query detail:", queryId);
@@ -232,9 +228,6 @@ class QueryApiService {
     }
   }
 
-  /**
-   * 🗑️ Delete a query
-   */
   async deleteQuery(
     queryId: number
   ): Promise<{ message: string; deleted_id: number }> {

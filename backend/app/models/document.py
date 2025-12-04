@@ -1,12 +1,8 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, JSON, Boolean, Float
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Boolean, Text, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
 
-
-# ==========================================================
-# DOCUMENT MODEL
-# ==========================================================
 class Document(Base):
     __tablename__ = "documents"
 
@@ -14,7 +10,7 @@ class Document(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=False, index=True)
     file_path = Column(String, nullable=False)
-    file_type = Column(String, nullable=False)  # pdf, docx, txt
+    file_type = Column(String, nullable=False)
     file_size = Column(Integer, nullable=False)
 
     metadata_ = Column("doc_metadata", JSON, nullable=True)
@@ -24,6 +20,11 @@ class Document(Base):
 
     # Relationships
     owner = relationship("User", back_populates="documents")
+    conversations = relationship(  # ✅ NEW
+        "Conversation",
+        secondary="conversation_documents",
+        back_populates="documents"
+    )
 
     def __repr__(self):
         return f"<Document(id={self.id}, title={self.title}, processed={self.processed})>"
@@ -46,12 +47,16 @@ class Query(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     execution_time = Column(Integer, nullable=True)
 
-    feedback = Column(JSON, nullable=True)
     rating = Column(Float, nullable=True)
-    
 
     # Relationships
     user = relationship("User", back_populates="queries")
     feedback = relationship("Feedback", uselist=False, back_populates="query")
+    conversations = relationship(  # ✅ NEW
+        "Conversation",
+        secondary="conversation_queries",
+        back_populates="queries"
+    )
+
     def __repr__(self):
         return f"<Query(id={self.id}, user_id={self.user_id}, rating={self.rating})>"

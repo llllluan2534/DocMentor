@@ -1,4 +1,4 @@
-# backend/app/routers/query.py
+# backend/app/routers/query.py - UPDATED WITH CONVERSATION SUPPORT
 from fastapi import APIRouter, Depends, HTTPException, status, Query as QueryParam
 from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Date, desc, asc
@@ -6,7 +6,8 @@ from datetime import datetime, timedelta, time
 from typing import List, Optional, Any, Dict
 
 from ..database import get_db
-from ..models.feedback import Feedback  # ✅ Import Feedback model
+from ..models.feedback import Feedback
+from ..models.conversation import Conversation  # ✅ NEW IMPORT
 from ..schemas.query import (
     QueryRequest,
     QueryResponse,
@@ -24,16 +25,34 @@ router = APIRouter(prefix="/query", tags=["Query & RAG"])
 
 
 # -------------------------------
-# 1) Query documents (POST /query/)
+# 1) Query documents with CONVERSATION SUPPORT
 # -------------------------------
 @router.post("/", response_model=QueryResponse)
 async def query_documents(
     request: QueryRequest,
+    conversation_id: Optional[int] = QueryParam(None),  # ✅ NEW PARAMETER
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Query tài liệu với AI (Gemini)"""
+    """
+    Query tài liệu với AI (Gemini).
+    
+    ✅ NEW: Nếu cung cấp conversation_id, query sẽ được thêm vào conversation đó.
+    """
     rag_service = RAGServiceGemini()
+
+    # ✅ Validate conversation nếu được cung cấp
+    if conversation_id:
+        conversation = db.query(Conversation).filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id
+        ).first()
+        
+        if not conversation:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found or not owned by you"
+            )
 
     # Gọi RAG service
     result = await rag_service.query_documents(
@@ -44,7 +63,7 @@ async def query_documents(
         max_results=request.max_results
     )
 
-    # Nếu RAG trả về kết quả KHÔNG có query_id → tức là không tìm thấy tài liệu
+    # Nếu RAG trả về kết quả KHÔNG có query_id
     if "query_id" not in result:
         return {
             "query_id": None,
@@ -56,7 +75,27 @@ async def query_documents(
             "created_at": datetime.utcnow()
         }
 
-    # Nếu OK → trả về đủ thông tin
+    # ✅ NEW: Add query to conversation if conversation_id provided
+    if conversation_id and result.get("query_id"):
+        try:
+            # Get the created query
+            query = db.query(QueryModel).filter(QueryModel.id == result["query_id"]).first()
+            
+            if query:
+                # Add query to conversation
+                conversation.queries.append(query)
+                
+                # Update conversation's updated_at timestamp
+                conversation.updated_at = datetime.utcnow()
+                
+                db.commit()
+                print(f"✅ Added query {query.id} to conversation {conversation_id}")
+        except Exception as e:
+            print(f"⚠️ Failed to add query to conversation: {e}")
+            # Don't fail the whole request if conversation link fails
+            db.rollback()
+
+    # Trả về response
     return {
         "query_id": result["query_id"],
         "query_text": request.query_text,
@@ -69,7 +108,7 @@ async def query_documents(
 
 
 # -------------------------------
-# 2) Get history with filters (GET /query/history)
+# 2) Get history with filters (UNCHANGED)
 # -------------------------------
 @router.get("/history", response_model=QueryHistory)
 def get_query_history(
@@ -171,7 +210,7 @@ def get_query_history(
 
 
 # -------------------------------
-# 3) Get query detail (GET /query/{query_id})
+# 3) Get query detail (UNCHANGED)
 # -------------------------------
 @router.get("/{query_id}", response_model=QueryResponse)
 def get_query_detail(
@@ -222,7 +261,7 @@ def get_query_detail(
 
 
 # -------------------------------
-# 4) Submit feedback (POST /query/feedback)
+# 4) Submit feedback (UNCHANGED)
 # -------------------------------
 @router.post("/feedback", status_code=status.HTTP_200_OK)
 def submit_feedback(
@@ -230,11 +269,7 @@ def submit_feedback(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    ✅ Submit rating/feedback for a query - LƯU VÀO BẢNG FEEDBACKS
-    """
-
-    # 1️⃣ Check query exists
+    """Submit rating/feedback for a query"""
     query = (
         db.query(QueryModel)
         .filter(QueryModel.id == feedback.query_id)
@@ -243,11 +278,9 @@ def submit_feedback(
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
 
-    # 2️⃣ Check permission
     if query.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: not your query")
 
-    # 3️⃣ ✅ Kiểm tra đã có feedback trong BẢNG FEEDBACKS chưa
     existing_feedback = (
         db.query(Feedback)
         .filter(Feedback.query_id == feedback.query_id)
@@ -256,11 +289,9 @@ def submit_feedback(
     if existing_feedback:
         raise HTTPException(status_code=400, detail="Already submitted feedback")
 
-    # 4️⃣ Validate rating server-side
     if not (1 <= feedback.rating <= 5):
         raise HTTPException(status_code=422, detail="Rating must be from 1 to 5")
 
-    # 5️⃣ ✅ TẠO FEEDBACK MỚI TRONG BẢNG FEEDBACKS
     new_feedback = Feedback(
         query_id=feedback.query_id,
         user_id=current_user.id,
@@ -270,15 +301,12 @@ def submit_feedback(
 
     db.add(new_feedback)
     
-    # 6️⃣ (Optional) Cập nhật cột rating trong bảng queries
     if hasattr(query, "rating"):
         query.rating = feedback.rating
 
-    # 7️⃣ Save to database
     db.commit()
     db.refresh(new_feedback)
 
-    # 8️⃣ Return response
     return {
         "query_id": query.id,
         "feedback": {
@@ -291,7 +319,7 @@ def submit_feedback(
 
 
 # -------------------------------
-# 5) Get feedback (GET /query/{query_id}/feedback)
+# 5) Get feedback (UNCHANGED)
 # -------------------------------
 @router.get("/{query_id}/feedback", status_code=200)
 def get_feedback(
@@ -299,11 +327,7 @@ def get_feedback(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    ✅ Get feedback for a query - LẤY TỪ BẢNG FEEDBACKS
-    """
-
-    # 1️⃣ Check query exists
+    """Get feedback for a query"""
     query = (
         db.query(QueryModel)
         .filter(QueryModel.id == query_id)
@@ -312,18 +336,15 @@ def get_feedback(
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
 
-    # 2️⃣ Permission check
     if query.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: not your query")
 
-    # 3️⃣ ✅ LẤY FEEDBACK TỪ BẢNG FEEDBACKS
     feedback = (
         db.query(Feedback)
         .filter(Feedback.query_id == query_id)
         .first()
     )
 
-    # 4️⃣ Return feedback or None
     if not feedback:
         return None
 
@@ -336,7 +357,7 @@ def get_feedback(
 
 
 # -------------------------------
-# 6) Delete query (DELETE /query/{query_id})
+# 6) Delete query (UNCHANGED)
 # -------------------------------
 @router.delete("/{query_id}", status_code=status.HTTP_200_OK)
 def delete_query(
@@ -344,9 +365,7 @@ def delete_query(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Delete a query belonging to current user.
-    """
+    """Delete a query belonging to current user"""
     query = (
         db.query(QueryModel)
         .filter(QueryModel.id == query_id, QueryModel.user_id == current_user.id)
@@ -362,23 +381,16 @@ def delete_query(
 
 
 # -------------------------------
-# 7) Statistics (GET /query/stats)
+# 7) Statistics (UNCHANGED)
 # -------------------------------
 @router.get("/stats")
 def get_query_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Return:
-      - total_queries
-      - avg_rating (✅ LẤY TỪ BẢNG FEEDBACKS)
-      - activity_last_7_days (list of {date, count})
-    """
-    # Total queries
+    """Return query statistics"""
     total_q = db.query(func.count(QueryModel.id)).filter(QueryModel.user_id == current_user.id).scalar() or 0
 
-    # ✅ Tính avg_rating từ bảng FEEDBACKS
     avg_rating = 0.0
     try:
         avg = db.query(func.avg(Feedback.rating)).filter(
@@ -388,7 +400,6 @@ def get_query_stats(
     except Exception:
         avg_rating = 0.0
 
-    # Daily counts last 7 days (UTC)
     now = datetime.utcnow()
     start_dt = datetime.combine((now.date() - timedelta(days=6)), time.min)
 
