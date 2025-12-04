@@ -1,10 +1,6 @@
 import { documentApiService } from "@/services/api/documentApiService";
 import { Document } from "@/types/document.types";
 
-// ============================================================
-// TYPES
-// ============================================================
-
 interface GetDocumentsOptions {
   page?: number;
   limit?: number;
@@ -87,26 +83,29 @@ export const documentService = {
   try {
     console.log("📤 Fetching documents:", options);
 
-    // ✨ FIX: Sửa công thức tính skip
-    const skip = options?.page 
-      ? (options.page - 1) * (options?.limit || 10)  // ✅ Đúng
-      : 0;
+    // ✅ FIX: Sửa công thức tính skip
+    const page = options?.page ?? 1;
+    const limit = options?.limit ?? 10;
+    const skip = (page - 1) * limit; // ✅ Đúng công thức
 
-    console.log("🔢 Calculated skip:", skip); // Debug log
+    console.log("🔢 Pagination:", { page, limit, skip });
 
     const response = await documentApiService.getDocuments({
       skip,
-      limit: options?.limit || 10,
+      limit,
       search: options?.query,
       sort_by: options?.sort_by,
     });
 
-    // ✨ DEBUG: Log raw response
     console.log("📦 Raw API Response:", response);
-    console.log("📄 Documents count:", response.documents?.length);
-    console.log("📊 Total:", response.total);
 
-    // ✨ MAP: Convert API response to Document[]
+    // ✅ Kiểm tra response có hợp lệ không
+    if (!response || !Array.isArray(response.documents)) {
+      console.error("❌ Invalid response format:", response);
+      return { data: [], total: 0 };
+    }
+
+    // Map documents
     const documents: Document[] = response.documents.map((doc) => ({
       id: doc.id,
       title: doc.title,
@@ -119,14 +118,16 @@ export const documentService = {
       metadata: doc.metadata_,
     }));
 
-    console.log("✅ Transformed documents:", documents);
+    console.log("✅ Transformed documents:", documents.length);
 
     return {
       data: documents,
       total: response.total,
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Get documents failed:", error);
+    
+    // ✅ Rethrow lỗi để DocumentsPage xử lý
     throw error;
   }
 } /**

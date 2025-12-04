@@ -20,8 +20,7 @@ interface AuthContextType {
     password: string,
     rememberMe: boolean
   ) => Promise<void>;
-  logout: () => Promise<void>; // Làm logout async để phù hợp với real service
-  // 👈 ĐÃ THÊM: Định nghĩa hàm register
+  logout: () => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
 }
 
@@ -47,40 +46,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        // ✅ FIX: Check token tồn tại trước
+        // ✅ FIX: CHỈ kiểm tra storage, KHÔNG gọi API
         const token = realAuthService.getToken();
-        if (!token) {
-          console.log("🔍 No token found");
-          setIsAuthenticated(false);
-          setIsLoading(false);
-          return;
-        }
-
-        // ✅ FIX: Lấy user từ storage trước (không cần call API)
         const currentUser = await realAuthService.getCurrentUser();
-        if (currentUser) {
-          setUser(currentUser);
-          setIsAuthenticated(true); // ✅ Tin tưởng token trong storage
 
-          // ✅ Optional: Verify token với backend (background)
-          // Nếu fail thì logout, nhưng không block UI
-          realAuthService.isAuthenticated().catch(() => {
-            console.log("⚠️ Token invalid, logging out");
-            logout();
-          });
+        if (token && currentUser) {
+          console.log("✅ User authenticated from storage:", currentUser.email);
+          setUser(currentUser);
+          setIsAuthenticated(true);
         } else {
+          console.log("❌ No valid session found");
           setIsAuthenticated(false);
+          setUser(null);
         }
       } catch (error) {
-        console.error("Error initializing auth:", error);
+        console.error("❌ Error initializing auth:", error);
         setIsAuthenticated(false);
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
     };
 
     initAuth();
-  }, []);
+  }, []); // ✅ Chạy 1 lần khi mount
 
   const login = async (
     email: string,
@@ -92,7 +81,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(response.user);
       setIsAuthenticated(true);
     } catch (error: any) {
-      console.error("Login error:", error);
+      console.error("❌ Login error:", error);
       throw error;
     }
   };
@@ -101,7 +90,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       await realAuthService.register(data);
     } catch (error: any) {
-      console.error("Registration error:", error);
+      console.error("❌ Registration error:", error);
       throw error;
     }
   };
@@ -110,7 +99,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       await realAuthService.logout();
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error("❌ Logout error:", error);
     } finally {
       setUser(null);
       setIsAuthenticated(false);

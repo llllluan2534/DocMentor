@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { FiEdit2, FiX } from "react-icons/fi";
 
 import { documentService } from "@/services/document/documentService";
@@ -28,6 +29,7 @@ interface ExtendedFilters extends Filters {
 }
 
 const DocumentsPage: React.FC = () => {
+  const navigate = useNavigate();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [filteredDocuments, setFilteredDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,7 +43,7 @@ const DocumentsPage: React.FC = () => {
   const [filters, setFilters] = useState<ExtendedFilters>({
     sortBy: "date_desc",
   });
-  const [editingId, setEditingId] = useState<string | null>(null); // Giữ là string
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
 
   const DOCUMENTS_PER_PAGE = 10;
@@ -57,13 +59,23 @@ const DocumentsPage: React.FC = () => {
       setDocuments(response.data);
       setTotalPages(Math.ceil(response.total / DOCUMENTS_PER_PAGE));
       setError(null);
-    } catch (err) {
+    } catch (err: any) {
+      console.error("❌ Fetch documents error:", err);
+      if (err?.status === 401) {
+        console.warn("🔒 Unauthorized - Redirecting to login");
+        // Xóa token và redirect
+        localStorage.removeItem("auth_token");
+        sessionStorage.removeItem("auth_token");
+        navigate("/login", { replace: true });
+        return;
+      }
+
+      // Các lỗi khác
       setError("Không thể tải tài liệu. Vui lòng thử lại sau.");
-      console.error(err);
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, debouncedSearchQuery]);
+  }, [currentPage, debouncedSearchQuery, navigate]);
 
   useEffect(() => {
     let result = [...documents];
@@ -165,24 +177,24 @@ const DocumentsPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background p-4 md:p-6 lg:p-8 relative pb-24">
+    <div className="relative min-h-screen p-4 pb-24 bg-background md:p-6 lg:p-8">
             {/* Header */}     {" "}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-accent via-accent to-background border border-primary/20 p-6 md:p-8 mb-6 animate-fade-in">
+      <div className="relative p-6 mb-6 overflow-hidden border rounded-2xl bg-gradient-to-br from-accent via-accent to-background border-primary/20 md:p-8 animate-fade-in">
                {" "}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+        <div className="absolute top-0 right-0 w-64 h-64 translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-3xl"></div>
                {" "}
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-secondary/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
+        <div className="absolute bottom-0 left-0 w-48 h-48 -translate-x-1/2 translate-y-1/2 rounded-full bg-secondary/10 blur-3xl"></div>
                {" "}
-        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="relative z-10 flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
                    {" "}
           <div className="animate-slide-in-left">
                        {" "}
-            <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text text-transparent mb-2 flex items-center gap-3">
+            <h1 className="flex items-center gap-3 mb-2 text-3xl font-bold text-transparent md:text-4xl bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text">
                             <FiEdit2 className="w-8 h-8" />              Thư
               viện tài liệu            {" "}
             </h1>
                        {" "}
-            <p className="text-text-muted text-sm md:text-base">
+            <p className="text-sm text-text-muted md:text-base">
                             Quản lý và tìm kiếm tài liệu của bạn một cách dễ
               dàng            {" "}
             </p>
@@ -198,7 +210,7 @@ const DocumentsPage: React.FC = () => {
                             + Tải lên tài liệu            {" "}
             </Button>
                        {" "}
-            <div className="flex items-center bg-accent/80 backdrop-blur-sm rounded-xl p-1 border border-primary/20">
+            <div className="flex items-center p-1 border bg-accent/80 backdrop-blur-sm rounded-xl border-primary/20">
                            {" "}
               <button
                 onClick={() => setViewMode("grid")}
@@ -256,9 +268,9 @@ const DocumentsPage: React.FC = () => {
            {" "}
       <div className="mb-6 animate-fade-in" style={{ animationDelay: "0.1s" }}>
                {" "}
-        <div className="bg-accent/60 backdrop-blur-sm rounded-xl p-4 border border-primary/20 shadow-lg">
+        <div className="p-4 border shadow-lg bg-accent/60 backdrop-blur-sm rounded-xl border-primary/20">
                    {" "}
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
                        {" "}
             <div className="flex-1 w-full">
                             <DocumentSearch onSearch={handleSearch} />         
@@ -280,13 +292,13 @@ const DocumentsPage: React.FC = () => {
       <div className="animate-fade-in" style={{ animationDelay: "0.2s" }}>
                {" "}
         {isLoading ? (
-          <div className="flex flex-col justify-center items-center h-64 bg-accent/40 backdrop-blur-sm rounded-xl border border-primary/20">
+          <div className="flex flex-col items-center justify-center h-64 border bg-accent/40 backdrop-blur-sm rounded-xl border-primary/20">
                        {" "}
-            <div className="animate-spin w-8 h-8 border-2 border-primary border-t-secondary rounded-full"></div>
+            <div className="w-8 h-8 border-2 rounded-full animate-spin border-primary border-t-secondary"></div>
                      {" "}
           </div>
         ) : error ? (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
+          <div className="p-6 text-center border bg-red-500/10 border-red-500/30 rounded-xl">
                        {" "}
             <div className="flex items-center justify-center gap-2 mb-2">
                             <FiX className="w-5 h-5 text-red-400" />           
@@ -295,7 +307,7 @@ const DocumentsPage: React.FC = () => {
                      {" "}
           </div>
         ) : filteredDocuments.length === 0 ? (
-          <div className="bg-accent/40 backdrop-blur-sm border border-primary/20 rounded-xl p-12 text-center">
+          <div className="p-12 text-center border bg-accent/40 backdrop-blur-sm border-primary/20 rounded-xl">
                        {" "}
             <p className="text-text-muted">Không tìm thấy tài liệu</p>       
              {" "}
@@ -341,8 +353,7 @@ const DocumentsPage: React.FC = () => {
         )}
              {" "}
       </div>
-            {/* Upload Modal */}
-           {" "}
+            {/* Upload Modal */}     {" "}
       <DocumentUploadModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}

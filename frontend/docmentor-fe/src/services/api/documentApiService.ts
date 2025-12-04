@@ -65,13 +65,12 @@ class DocumentApiService {
 
     this.axiosInstance = axios.create({
       baseURL: this.apiBaseUrl,
-      timeout: 60000, // 60s for file upload
+      timeout: 60000,
       headers: {
         "Content-Type": "application/json",
       },
     });
 
-    // ✨ Request Interceptor - Add Auth Token
     this.axiosInstance.interceptors.request.use(
       (config) => {
         const token = this.getAuthToken();
@@ -99,9 +98,7 @@ class DocumentApiService {
         console.error("API Error:", apiError);
 
         if (error.response?.status === 401) {
-          console.warn("Unauthorized: redirecting to login");
-          localStorage.removeItem("auth_token");
-          sessionStorage.removeItem("auth_token");
+          console.warn("⚠️ 401 Unauthorized - Token may be invalid");
         }
 
         return Promise.reject(apiError);
