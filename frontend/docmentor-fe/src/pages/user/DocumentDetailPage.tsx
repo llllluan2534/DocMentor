@@ -18,7 +18,7 @@ const DocumentDetailPage: React.FC = () => {
     const fetchDocument = async () => {
       setIsLoading(true);
       try {
-        const data = await documentService.getDocumentById(documentId);
+        const data = await documentService.getDocument(documentId);
         if (data) {
           setDocument(data);
         } else {
@@ -36,23 +36,23 @@ const DocumentDetailPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-screen">
+      <div className="flex items-center justify-center h-screen">
         Đang tải tài liệu...
       </div>
     );
   }
 
   if (error) {
-    return <div className="text-center text-red-500 mt-10">{error}</div>;
+    return <div className="mt-10 text-center text-red-500">{error}</div>;
   }
 
   if (!document) {
-    return <div className="text-center mt-10">Không có dữ liệu.</div>;
+    return <div className="mt-10 text-center">Không có dữ liệu.</div>;
   }
 
   return (
     <div className="p-6 md:p-8">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-4">
+      <div className="grid grid-cols-1 gap-8 mt-4 lg:grid-cols-3">
         {/* Cột trái - Viewer */}
         <div className="lg:col-span-2">
           <DocumentViewer document={document} />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { mockAuthService, User } from "@/services/auth/mockAuthService";
+import { realAuthService, User } from "@/services/auth/authService";
 
 interface HeaderProps {
   hideAuthButtons?: boolean;
@@ -29,12 +29,16 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
 
   // Lấy thông tin user khi load header
   useEffect(() => {
-    const currentUser = mockAuthService.getCurrentUser();
-    setUser(currentUser);
+    const fetchUser = async () => {
+      const currentUser = await realAuthService.getCurrentUser();
+      setUser(currentUser);
+    };
+
+    fetchUser();
   }, []);
 
   const handleLogout = () => {
-    mockAuthService.logout();
+    realAuthService.logout();
     setUser(null);
     navigate("/login");
   };
@@ -55,25 +59,25 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
           : "bg-background py-5"
       }`}
     >
-      <div className="container mx-auto px-4">
+      <div className="container px-4 mx-auto">
         <div className="flex items-center justify-between">
           {/* Logo */}
           <div
             onClick={() => navigate("/")}
             className="flex items-center gap-3 cursor-pointer group"
           >
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <div className="flex items-center justify-center w-10 h-10 transition-transform rounded-lg bg-primary group-hover:scale-110">
               <img
                 src="/assets/logo.png"
                 alt="Logo"
-                className="w-10 h-10 object-contain"
+                className="object-contain w-10 h-10"
               />
             </div>
             <span className="text-2xl font-bold text-white">DocMentor</span>
           </div>
 
           {/* ✅ Desktop section */}
-          <div className="hidden md:flex items-center gap-6">
+          <div className="items-center hidden gap-6 md:flex">
             {user ? (
               <>
                 {/* Menu khi login */}
@@ -95,34 +99,34 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
 
                 {/* Avatar dropdown */}
                 <div className="relative group">
-                  <div className="w-9 h-9 bg-gradient-to-br from-primary to-purple-600 rounded-full overflow-hidden cursor-pointer">
+                  <div className="overflow-hidden rounded-full cursor-pointer w-9 h-9 bg-gradient-to-br from-primary to-purple-600">
                     {user.avatar ? (
                       <img
                         src={user.avatar}
                         alt={user.name}
-                        className="w-full h-full object-cover"
+                        className="object-cover w-full h-full"
                       />
                     ) : (
-                      <span className="flex items-center justify-center w-full h-full text-white font-semibold">
+                      <span className="flex items-center justify-center w-full h-full font-semibold text-white">
                         {user.name.charAt(0).toUpperCase()}
                       </span>
                     )}
                   </div>
 
                   {/* Dropdown menu */}
-                  <div className="absolute hidden group-hover:block right-0 mt-3 w-44 bg-background border border-accent rounded-lg shadow-lg">
+                  <div className="absolute right-0 hidden mt-3 border rounded-lg shadow-lg group-hover:block w-44 bg-background border-accent">
                     {settingsItems.map((item) => (
                       <button
                         key={item.path}
                         onClick={() => navigate(item.path)}
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-accent hover:text-white transition-colors"
+                        className="w-full px-4 py-2 text-sm text-left transition-colors hover:bg-accent hover:text-white"
                       >
                         {item.label}
                       </button>
                     ))}
                     <button
                       onClick={handleLogout}
-                      className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+                      className="w-full px-4 py-2 text-sm text-left text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
                     >
                       Đăng xuất
                     </button>
@@ -134,7 +138,7 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
               <>
                 <button
                   onClick={() => navigate("/login")}
-                  className="px-5 py-2 font-semibold rounded-lg text-text-muted hover:text-white transition-colors"
+                  className="px-5 py-2 font-semibold transition-colors rounded-lg text-text-muted hover:text-white"
                 >
                   Đăng nhập
                 </button>
@@ -151,7 +155,7 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
           {/* Mobile toggle */}
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="md:hidden p-2 rounded-lg text-white"
+            className="p-2 text-white rounded-lg md:hidden"
           >
             {isMobileMenuOpen ? (
               <svg
@@ -187,7 +191,7 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
 
         {/* ✅ Mobile menu */}
         {isMobileMenuOpen && (
-          <div className="md:hidden mt-4 pb-4 bg-accent rounded-lg shadow-lg">
+          <div className="pb-4 mt-4 rounded-lg shadow-lg md:hidden bg-accent">
             <nav className="flex flex-col">
               {user ? (
                 <>
@@ -195,21 +199,21 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
                     <button
                       key={item.path}
                       onClick={() => navigate(item.path)}
-                      className="px-4 py-3 text-left text-text-muted hover:bg-background/50 hover:text-white transition-colors font-medium"
+                      className="px-4 py-3 font-medium text-left transition-colors text-text-muted hover:bg-background/50 hover:text-white"
                     >
                       {item.label}
                     </button>
                   ))}
-                  <div className="border-t border-background mt-2 pt-2">
+                  <div className="pt-2 mt-2 border-t border-background">
                     <button
                       onClick={() => navigate("/user/settings")}
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-background/50"
+                      className="w-full px-4 py-2 text-sm text-left hover:bg-background/50"
                     >
                       Cài đặt
                     </button>
                     <button
                       onClick={handleLogout}
-                      className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+                      className="w-full px-4 py-2 text-sm text-left text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
                     >
                       Đăng xuất
                     </button>
@@ -217,16 +221,16 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
                 </>
               ) : (
                 !hideAuthButtons && (
-                  <div className="border-t border-background mt-2 pt-2 px-4 space-y-2">
+                  <div className="px-4 pt-2 mt-2 space-y-2 border-t border-background">
                     <button
                       onClick={() => navigate("/login")}
-                      className="w-full text-center px-4 py-2 text-text-muted font-semibold rounded-lg hover:bg-background/50 transition-colors"
+                      className="w-full px-4 py-2 font-semibold text-center transition-colors rounded-lg text-text-muted hover:bg-background/50"
                     >
                       Đăng nhập
                     </button>
                     <button
                       onClick={() => navigate("/register")}
-                      className="w-full px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-opacity-90 transition-colors"
+                      className="w-full px-4 py-2 font-semibold text-white transition-colors rounded-lg bg-primary hover:bg-opacity-90"
                     >
                       Đăng ký
                     </button>

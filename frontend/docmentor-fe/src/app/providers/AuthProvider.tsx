@@ -5,24 +5,11 @@ import React, {
   useEffect,
   ReactNode,
 } from "react";
-// Đã thêm RegisterData để import từ authService sau này, nhưng định nghĩa tạm ở đây
 import {
   realAuthService,
   User,
   RegisterData,
-} from "../../services/auth/authService"; // Import User và RegisterData
-
-// --- Định nghĩa interface RegisterData (Cần có trong authService.ts) ---
-// *LƯU Ý: Hiện tại tôi giả định cấu trúc này. Bạn cần đảm bảo cấu trúc này có trong authService.ts*
-/*
-interface RegisterData {
-  fullName: string;
-  email: string;
-  username: string;
-  password: string;
-}
-*/
-// ----------------------------------------------------------------------
+} from "../../services/auth/authService";
 
 interface AuthContextType {
   user: User | null;
@@ -55,16 +42,32 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false); // Thêm state riêng để track auth status
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
   useEffect(() => {
-    // Check if user is already logged in (async vì real service dùng API verify)
     const initAuth = async () => {
       try {
+        // ✅ FIX: Check token tồn tại trước
+        const token = realAuthService.getToken();
+        if (!token) {
+          console.log("🔍 No token found");
+          setIsAuthenticated(false);
+          setIsLoading(false);
+          return;
+        }
+
+        // ✅ FIX: Lấy user từ storage trước (không cần call API)
         const currentUser = await realAuthService.getCurrentUser();
         if (currentUser) {
           setUser(currentUser);
-          const authStatus = await realAuthService.isAuthenticated(); // Verify token với backend
-          setIsAuthenticated(authStatus);
+          setIsAuthenticated(true); // ✅ Tin tưởng token trong storage
+
+          // ✅ Optional: Verify token với backend (background)
+          // Nếu fail thì logout, nhưng không block UI
+          realAuthService.isAuthenticated().catch(() => {
+            console.log("⚠️ Token invalid, logging out");
+            logout();
+          });
         } else {
           setIsAuthenticated(false);
         }
@@ -87,24 +90,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const response = await realAuthService.login(email, password, rememberMe);
       setUser(response.user);
-      setIsAuthenticated(true); // Set auth status sau login thành công
+      setIsAuthenticated(true);
     } catch (error: any) {
       console.error("Login error:", error);
-      throw error; // Re-throw để component gọi login handle error
+      throw error;
     }
-  }; // 👈 ĐÃ THÊM: Implement hàm register
+  };
+
   const register = async (data: RegisterData) => {
     try {
-      await realAuthService.register(data); // Không tự động đăng nhập, chỉ hoàn thành việc đăng ký.
+      await realAuthService.register(data);
     } catch (error: any) {
       console.error("Registration error:", error);
-      throw error; // Re-throw để RegisterPage.tsx handle error
+      throw error;
     }
   };
 
   const logout = async () => {
     try {
-      await realAuthService.logout(); // Gọi API logout nếu có
+      await realAuthService.logout();
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
@@ -113,14 +117,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const value: AuthContextType = {
-    user,
-    isAuthenticated,
-    isLoading,
-    login,
-    logout,
-    register, // 👈 ĐÃ THÊM: Thêm hàm register vào Context value
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{ user, isAuthenticated, isLoading, login, logout, register }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };

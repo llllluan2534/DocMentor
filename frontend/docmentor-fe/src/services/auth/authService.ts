@@ -104,17 +104,14 @@ class RealAuthService {
 
   async logout(): Promise<void> {
     console.log("🚪 Real logging out...");
-    try {
-      await api.post("/auth/logout"); // Nếu backend có endpoint này
-    } catch (error) {
-      console.log("⚠️ Logout API failed, but clearing local storage");
-    } // Clear storage anyway
+
     localStorage.removeItem("auth_token");
     localStorage.removeItem("user");
     sessionStorage.removeItem("auth_token");
     sessionStorage.removeItem("user");
+
     console.log("✅ Real logout complete");
-  } // Check authenticated: Dùng token hoặc gọi /api/auth/me
+  }
 
   async isAuthenticated(): Promise<boolean> {
     const token = this.getToken();
@@ -160,4 +157,4 @@ class RealAuthService {
 }
 
 export const realAuthService = new RealAuthService();
-export type { User, LoginResponse, RegisterData }; // 👈 ĐÃ THÊM: Export RegisterData
+export type { User, LoginResponse, RegisterData };

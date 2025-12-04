@@ -73,51 +73,63 @@ export const documentService = {
    */,
 
   getDocuments: async (
-    options?: GetDocumentsOptions
-  ): Promise<GetDocumentsResponse> => {
-    if (USE_MOCK_MODE) {
-      console.log("🎭 MOCK MODE: Get documents");
-      await new Promise((resolve) => setTimeout(resolve, 500));
+  options?: GetDocumentsOptions
+): Promise<GetDocumentsResponse> => {
+  if (USE_MOCK_MODE) {
+    console.log("🎭 MOCK MODE: Get documents");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return {
+      data: [],
+      total: 0,
+    };
+  }
 
-      return {
-        data: [],
-        total: 0,
-      };
-    }
+  try {
+    console.log("📤 Fetching documents:", options);
 
-    try {
-      console.log("📤 Fetching documents:", options);
+    // ✨ FIX: Sửa công thức tính skip
+    const skip = options?.page 
+      ? (options.page - 1) * (options?.limit || 10)  // ✅ Đúng
+      : 0;
 
-      const skip = (options?.page || 1 - 1) * (options?.limit || 10);
+    console.log("🔢 Calculated skip:", skip); // Debug log
 
-      const response = await documentApiService.getDocuments({
-        skip,
-        limit: options?.limit || 10,
-        search: options?.query,
-        sort_by: options?.sort_by,
-      }); // ✨ MAP: Convert API response to Document[]
+    const response = await documentApiService.getDocuments({
+      skip,
+      limit: options?.limit || 10,
+      search: options?.query,
+      sort_by: options?.sort_by,
+    });
 
-      const documents: Document[] = response.documents.map((doc) => ({
-        id: doc.id,
-        title: doc.title,
-        type: doc.file_type,
-        fileSize: doc.file_size,
-        uploadDate: doc.created_at,
-        status: doc.processed ? "ready" : "processing",
-        file_path: doc.file_path,
-        processed: doc.processed,
-        metadata: doc.metadata_,
-      }));
+    // ✨ DEBUG: Log raw response
+    console.log("📦 Raw API Response:", response);
+    console.log("📄 Documents count:", response.documents?.length);
+    console.log("📊 Total:", response.total);
 
-      return {
-        data: documents,
-        total: response.total,
-      };
-    } catch (error) {
-      console.error("❌ Get documents failed:", error);
-      throw error;
-    }
-  } /**
+    // ✨ MAP: Convert API response to Document[]
+    const documents: Document[] = response.documents.map((doc) => ({
+      id: doc.id,
+      title: doc.title,
+      type: doc.file_type,
+      fileSize: doc.file_size,
+      uploadDate: doc.created_at,
+      status: doc.processed ? "ready" : "processing",
+      file_path: doc.file_path,
+      processed: doc.processed,
+      metadata: doc.metadata_,
+    }));
+
+    console.log("✅ Transformed documents:", documents);
+
+    return {
+      data: documents,
+      total: response.total,
+    };
+  } catch (error) {
+    console.error("❌ Get documents failed:", error);
+    throw error;
+  }
+} /**
    * 🔍 Get single document
    */,
 

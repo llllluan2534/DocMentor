@@ -29,13 +29,12 @@ if os.getenv("FRONTEND_URL"):
 if settings.ENVIRONMENT == "development":
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Development: cho phép tất cả
-        allow_credentials=False,  # Phải tắt credentials khi dùng "*"
+        allow_origins=allowed_origins, 
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 else:
-    # Production: chỉ cho phép origins cụ thể
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
