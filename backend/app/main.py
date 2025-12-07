@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 from .config import settings
-from .routers import auth, documents, query, analysis, analytics
+from .routers import auth, documents, query, analysis, analytics, conversations
 import os
 
 app = FastAPI(
@@ -49,6 +49,7 @@ app.include_router(documents.router)
 app.include_router(query.router)
 app.include_router(analysis.router)
 app.include_router(analytics.router)
+app.include_router(conversations.router)
 
 @app.get("/")
 def read_root():

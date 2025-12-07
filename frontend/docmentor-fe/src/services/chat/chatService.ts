@@ -145,23 +145,33 @@ export const chatService = {
         limit: 100,
         sort_by: "date",
         order: "desc",
-      }); // ✨ MAP: Convert QueryResponse to Conversation
+      });
 
-      const conversations: Conversation[] = history.queries.map((query) => ({
-        id: query.query_id?.toString() || `query-${Date.now()}`,
-        title:
-          query.query_text.substring(0, 50) +
-          (query.query_text.length > 50 ? "..." : ""),
-        createdAt: query.created_at,
-      }));
+      // ✅ FIX: Convert QueryResponse to Conversation
+      const conversations: Conversation[] = history.queries.map((query) => {
+        // Tạo title từ query_text
+        let title = query.query_text.substring(0, 50);
+        if (query.query_text.length > 50) {
+          title += "...";
+        }
+
+        // Nếu có conversation_id, dùng nó làm ID
+        // Nếu không, dùng query_id (cho backward compatibility)
+        const id = query.query_id?.toString() || `query-${Date.now()}`;
+
+        return {
+          id: id,
+          title: title,
+          createdAt: query.created_at,
+        };
+      });
 
       return conversations;
     } catch (error) {
       console.error("❌ Get conversations error:", error);
       return [];
     }
-  }, // ✨ UPDATED: Get Chat History - Từ query detail
-
+  },
   getChatHistory: async (conversationId: string): Promise<ChatMessage[]> => {
     if (USE_MOCK_MODE) {
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -189,7 +199,6 @@ export const chatService = {
       return [];
     }
   },
-
 
   sendMessage: async (
     _conversationId: string,
@@ -241,33 +250,23 @@ export const chatService = {
   createNewConversation: async (
     payload: CreateNewConversationPayload
   ): Promise<Conversation> => {
-    if (USE_MOCK_MODE) {
-      await new Promise((res) => setTimeout(res, 1000));
-      return {
-        id: `conv-${Date.now()}`,
-        title: payload.title,
-        createdAt: new Date().toISOString(),
-      };
-    }
-
     try {
-      // ✨ REAL API: Send initial query - create conversation
       const rawDocIds = payload.documentIds || [];
 
-      // FIX: Chuyển đổi ID sang NUMBER và loại bỏ NaN
+      // Chuyển đổi ID
       const numericDocIds = rawDocIds
         .map((id) => (typeof id === "string" ? parseInt(id, 10) : id))
-        .filter((id): id is number => !isNaN(id)); // Đảm bảo chỉ còn number[]
-      // Khởi tạo tin nhắn với tài liệu được chọn
+        .filter((id): id is number => !isNaN(id));
 
       const initialMessage =
-        payload.initialMessage ||
-        `Bắt đầu trò chuyện với ${numericDocIds.length} tài liệu.`;
+        payload.initialMessage || "Bắt đầu cuộc trò chuyện";
 
+      // ✅ Gửi query để tạo conversation
       const response = await queryApiService.sendQuery(
-        initialMessage, // Dùng initialMessage
-        numericDocIds, // Truyền mảng NUMBER IDs
+        initialMessage,
+        numericDocIds,
         5
+        // ✅ KHÔNG truyền conversation_id (backend sẽ tạo mới)
       );
 
       return {
@@ -279,7 +278,7 @@ export const chatService = {
       console.error("❌ Create conversation error:", error);
       throw error;
     }
-  }, // ✨ UPDATED: Start Guest Session
+  },
 
   startGuestSession: async (
     payload: StartGuestSessionPayload

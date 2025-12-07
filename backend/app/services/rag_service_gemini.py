@@ -164,7 +164,6 @@ class RAGServiceGemini:
             doc_id = match['document_id']
             doc = doc_map.get(doc_id)
 
-            # ✅ Đảm bảo đầy đủ các trường theo SourceSchema
             sources.append({
                 'document_id': doc_id,
                 'document_title': doc.title if doc else "Unknown Document",

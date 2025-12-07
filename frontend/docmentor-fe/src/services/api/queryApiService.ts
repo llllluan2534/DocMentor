@@ -154,7 +154,7 @@ class QueryApiService {
     queryText: string,
     documentIds: number[],
     maxResults: number = 5,
-    conversationId?: number
+    conversationId?: number // ✅ NEW PARAMETER
   ): Promise<QueryResponse> {
     try {
       console.log("📤 Sending query:", {
@@ -163,21 +163,16 @@ class QueryApiService {
         conversationId,
       });
 
-      const requestBody: any = {
+      // ✅ Add conversation_id as query parameter if provided
+      const url = conversationId
+        ? `/query/?conversation_id=${conversationId}`
+        : "/query/";
+
+      const response = await this.axiosInstance.post<QueryResponse>(url, {
         query_text: queryText,
         document_ids: documentIds,
         max_results: maxResults,
-      };
-
-      // ✅ Gửi conversation_id trong body
-      if (conversationId !== undefined) {
-        requestBody.conversation_id = conversationId;
-      }
-
-      const response = await this.axiosInstance.post<QueryResponse>(
-        "/query/",
-        requestBody
-      );
+      });
 
       console.log("✓ Query response received:", response.data);
       return response.data;
