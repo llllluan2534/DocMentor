@@ -171,28 +171,34 @@ const ChatPage: React.FC = () => {
 
   const handleNewConversation = async () => {
     try {
-      console.log("🆕 Creating REAL conversation from sidebar");
+      console.log("🆕 Creating TEMP conversation (no backend call)");
 
-      // ✅ Tạo conversation THẬT với backend
-      const newConv = await chatService.createNewConversation({
+      // ✅ FIX: Tạo conversation TẠM, KHÔNG gọi backend
+      const tempConv: Conversation = {
+        id: `temp-new-${Date.now()}`,
         title: "Cuộc trò chuyện mới",
-        initialMessage: "Xin chào!", // Message mặc định
-        documentIds: [], // Không có document ban đầu
+        createdAt: new Date().toISOString(),
+      };
+
+      // ✅ Thêm vào đầu danh sách (loại bỏ temp conversations khác)
+      setConversations((prev) => {
+        const filtered = prev.filter((c) => !c.id.startsWith("temp-"));
+        return [tempConv, ...filtered];
       });
 
-      console.log("✅ Real conversation created:", newConv.id);
-
-      // ✅ Thêm vào đầu danh sách
-      setConversations((prev) => [newConv, ...prev]);
-      setActiveConversationId(newConv.id);
+      setActiveConversationId(tempConv.id);
 
       // ✅ Clear selected documents
       setSelectedDocuments([]);
 
-      // ✅ Chuyển hướng đến conversation mới
-      navigate(`/user/chat/${newConv.id}`, { replace: true });
+      // ✅ Chuyển hướng
+      navigate(`/user/chat/${tempConv.id}`, { replace: true });
+
+      console.log(
+        "✅ Temp conversation created, waiting for user's first message"
+      );
     } catch (error) {
-      console.error("❌ Create conversation error:", error);
+      console.error("❌ Create temp conversation error:", error);
       alert("Không thể tạo cuộc trò chuyện mới.");
     }
   };

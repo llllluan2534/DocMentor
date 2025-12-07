@@ -26,7 +26,7 @@ if os.getenv("FRONTEND_URL"):
         allowed_origins.append(frontend_url)
 
 # Trong development, cho phép tất cả origins (tắt credentials)
-if settings.ENVIRONMENT == "development":
+if settings.ENVIRONMENT == "production":
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins, 

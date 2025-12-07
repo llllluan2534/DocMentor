@@ -139,7 +139,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     });
     setIsReplying(true);
 
-    // ✅ CASE 1: Existing conversation
+    // ✅ CASE 1: Temp conversation - Convert to real
+    if (contextId && contextId.startsWith("temp-")) {
+      console.log("🔄 Converting temp conversation to real");
+      await handleCreateNewConversation(messageText, file);
+      return;
+    }
+
+    // ✅ CASE 2: Existing real conversation
     if (contextId && messages.length > 0) {
       console.log("📝 Sending to existing conversation:", contextId);
 
@@ -159,7 +166,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       return;
     }
 
-    // ✅ CASE 2: No conversation yet - create new
+    // ✅ CASE 3: No conversation - Create new
     console.log("🆕 Creating new conversation");
     await handleCreateNewConversation(messageText, file);
   };
