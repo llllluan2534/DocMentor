@@ -36,19 +36,6 @@ def upgrade() -> None:
         op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
         op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
 
-    # --- CONVERSATIONS (THÊM MỚI) ---
-    if 'conversations' not in inspector.get_table_names():
-        op.create_table(
-            'conversations',
-            sa.Column('id', sa.Integer(), primary_key=True, nullable=False),
-            sa.Column('user_id', sa.Integer(), nullable=False),
-            sa.Column('title', sa.String(), nullable=False),
-            sa.Column('created_at', sa.DateTime(), nullable=False),
-            sa.Column('updated_at', sa.DateTime(), nullable=True),
-            sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE')
-        )
-        op.create_index(op.f('ix_conversations_id'), 'conversations', ['id'], unique=False)
-
     # --- DOCUMENTS ---
     if 'documents' not in inspector.get_table_names():
         op.create_table(

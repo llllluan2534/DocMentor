@@ -1,28 +1,27 @@
-# backend/app/routers/conversations.py
+# backend/app/routers/conversations.py - FIXED
 from fastapi import APIRouter, Depends, HTTPException, status, Query as QueryParam
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from ..database import get_db
 from ..models.user import User
-from ..models.conversation import Conversation, conversation_queries, conversation_documents
+from ..models.conversation import Conversation
 from ..models.document import Query as QueryModel, Document
 from ..utils.security import get_current_user
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
 
-
 # ============================================================
-# SCHEMAS (Inline để đơn giản)
+# SCHEMAS (Inline)
 # ============================================================
 from pydantic import BaseModel
+from typing import List
 
 class ConversationCreate(BaseModel):
     title: str
     document_ids: Optional[List[int]] = None
-    initial_query: Optional[str] = None
 
 class ConversationUpdate(BaseModel):
     title: str
@@ -36,57 +35,27 @@ class QuerySummary(BaseModel):
     class Config:
         from_attributes = True
 
-class ConversationDetail(BaseModel):
-    id: int
-    user_id: int
-    title: str
-    created_at: datetime
-    updated_at: datetime
-    queries: List[QuerySummary] = []
-    document_ids: List[int] = []
-    
-    class Config:
-        from_attributes = True
-
-class ConversationSummary(BaseModel):
-    id: int
-    title: str
-    created_at: datetime
-    updated_at: datetime
-    query_count: int = 0
-    document_count: int = 0
-    
-    class Config:
-        from_attributes = True
-
 
 # ============================================================
-# CREATE CONVERSATION
+# 1) CREATE CONVERSATION (No initial query)
 # ============================================================
 @router.post("/", status_code=status.HTTP_201_CREATED)
-async def create_conversation(
+def create_conversation(
     data: ConversationCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Tạo conversation mới với initial query (nếu có).
+    """Create empty conversation (frontend will send first query separately)"""
     
-    Luồng:
-    1. Tạo conversation
-    2. Gắn documents (nếu có)
-    3. Gửi initial_query qua RAG service (nếu có)
-    4. Gắn query vào conversation
-    """
-    # 1. Create conversation
+    # Create conversation
     conversation = Conversation(
         user_id=current_user.id,
         title=data.title
     )
     db.add(conversation)
-    db.flush()  # Get ID
+    db.flush()
 
-    # 2. Attach documents
+    # Attach documents
     if data.document_ids:
         docs = db.query(Document).filter(
             Document.id.in_(data.document_ids),
@@ -101,40 +70,6 @@ async def create_conversation(
         
         conversation.documents = docs
 
-    # 3. Send initial query if provided
-    query_result = None
-    if data.initial_query:
-        from ..services.rag_service_gemini import RAGServiceGemini
-        
-        rag_service = RAGServiceGemini()
-        
-        try:
-            result = await rag_service.query_documents(
-                db=db,
-                user=current_user,
-                query_text=data.initial_query,
-                document_ids=data.document_ids or [],
-                max_results=5
-            )
-            
-            # Query was saved by RAG service, get it
-            if result.get("query_id"):
-                query = db.query(QueryModel).filter(
-                    QueryModel.id == result["query_id"]
-                ).first()
-                
-                if query:
-                    conversation.queries.append(query)
-                    query_result = {
-                        "id": query.id,
-                        "query_text": query.query_text,
-                        "response_text": query.response_text,
-                        "created_at": query.created_at
-                    }
-        except Exception as e:
-            print(f"⚠️ Failed to send initial query: {e}")
-            # Continue anyway, conversation still created
-
     db.commit()
     db.refresh(conversation)
 
@@ -144,13 +79,13 @@ async def create_conversation(
         "title": conversation.title,
         "created_at": conversation.created_at,
         "updated_at": conversation.updated_at,
-        "queries": [query_result] if query_result else [],
+        "queries": [],
         "document_ids": [d.id for d in conversation.documents]
     }
 
 
 # ============================================================
-# GET ALL CONVERSATIONS
+# 2) GET ALL CONVERSATIONS
 # ============================================================
 @router.get("/")
 def get_conversations(
@@ -159,16 +94,15 @@ def get_conversations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Lấy danh sách conversations với số lượng queries và documents"""
+    """Get conversations with query/document counts"""
     
+    # ✅ FIX: Count queries using FK
     conversations = (
         db.query(
             Conversation,
-            func.count(func.distinct(conversation_queries.c.query_id)).label("query_count"),
-            func.count(func.distinct(conversation_documents.c.document_id)).label("document_count")
+            func.count(QueryModel.id).label("query_count")
         )
-        .outerjoin(conversation_queries)
-        .outerjoin(conversation_documents)
+        .outerjoin(QueryModel, Conversation.id == QueryModel.conversation_id)  # ✅ JOIN by FK
         .filter(Conversation.user_id == current_user.id)
         .group_by(Conversation.id)
         .order_by(Conversation.updated_at.desc())
@@ -180,14 +114,17 @@ def get_conversations(
     total = db.query(Conversation).filter(Conversation.user_id == current_user.id).count()
 
     result = []
-    for conv, query_count, doc_count in conversations:
+    for conv, query_count in conversations:
+        # Count documents separately (more reliable)
+        doc_count = len(conv.documents)
+        
         result.append({
             "id": conv.id,
             "title": conv.title,
             "created_at": conv.created_at,
             "updated_at": conv.updated_at,
             "query_count": query_count or 0,
-            "document_count": doc_count or 0
+            "document_count": doc_count
         })
 
     return {
@@ -199,7 +136,7 @@ def get_conversations(
 
 
 # ============================================================
-# GET CONVERSATION DETAIL
+# 3) GET CONVERSATION DETAIL
 # ============================================================
 @router.get("/{conversation_id}")
 def get_conversation_detail(
@@ -207,7 +144,7 @@ def get_conversation_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Lấy chi tiết conversation với tất cả queries"""
+    """Get conversation with all queries"""
     
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
@@ -220,15 +157,10 @@ def get_conversation_detail(
             detail="Conversation not found"
         )
 
-    queries = [
-        {
-            "id": q.id,
-            "query_text": q.query_text,
-            "response_text": q.response_text or "",
-            "created_at": q.created_at
-        }
-        for q in conversation.queries
-    ]
+    # ✅ FIX: Get queries using FK
+    queries = db.query(QueryModel).filter(
+        QueryModel.conversation_id == conversation_id
+    ).order_by(QueryModel.created_at.asc()).all()
 
     return {
         "id": conversation.id,
@@ -236,13 +168,21 @@ def get_conversation_detail(
         "title": conversation.title,
         "created_at": conversation.created_at,
         "updated_at": conversation.updated_at,
-        "queries": queries,
+        "queries": [
+            {
+                "id": q.id,
+                "query_text": q.query_text,
+                "response_text": q.response_text or "",
+                "created_at": q.created_at
+            }
+            for q in queries
+        ],
         "document_ids": [d.id for d in conversation.documents]
     }
 
 
 # ============================================================
-# UPDATE CONVERSATION
+# 4) UPDATE CONVERSATION
 # ============================================================
 @router.put("/{conversation_id}")
 def update_conversation(
@@ -251,7 +191,7 @@ def update_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Đổi tên conversation"""
+    """Rename conversation"""
     
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
@@ -279,7 +219,7 @@ def update_conversation(
 
 
 # ============================================================
-# DELETE CONVERSATION
+# 5) DELETE CONVERSATION
 # ============================================================
 @router.delete("/{conversation_id}")
 def delete_conversation(
@@ -287,7 +227,7 @@ def delete_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Xóa conversation (CASCADE delete links, không xóa queries/documents)"""
+    """Delete conversation (CASCADE deletes queries via FK)"""
     
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,

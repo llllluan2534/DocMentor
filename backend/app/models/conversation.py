@@ -5,17 +5,8 @@ from datetime import datetime
 from ..database import Base
 
 # ==========================================================
-# MANY-TO-MANY RELATIONSHIP TABLE
+# MANY-TO-MANY: Conversation ↔ Documents ONLY
 # ==========================================================
-conversation_queries = Table(
-    'conversation_queries',
-    Base.metadata,
-    Column('conversation_id', Integer, ForeignKey('conversations.id', ondelete='CASCADE'), primary_key=True),
-    Column('query_id', Integer, ForeignKey('queries.id', ondelete='CASCADE'), primary_key=True),
-    Column('order', Integer, default=0),  # Thứ tự query trong conversation
-    Column('added_at', DateTime, default=datetime.utcnow)
-)
-
 conversation_documents = Table(
     'conversation_documents',
     Base.metadata,
@@ -39,12 +30,16 @@ class Conversation(Base):
     
     # Relationships
     user = relationship("User", back_populates="conversations")
+    
+    # ✅ ONE-TO-MANY: 1 Conversation → nhiều Queries (qua FK)
     queries = relationship(
         "Query",
-        secondary=conversation_queries,
-        back_populates="conversations",
-        order_by="conversation_queries.c.order"
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="Query.created_at"
     )
+    
+    # ✅ MANY-TO-MANY: Conversation ↔ Documents
     documents = relationship(
         "Document",
         secondary=conversation_documents,

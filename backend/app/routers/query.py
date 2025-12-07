@@ -1,47 +1,43 @@
-# backend/app/routers/query.py - UPDATED WITH CONVERSATION SUPPORT
+# backend/app/routers/query.py - FIXED LOGIC
 from fastapi import APIRouter, Depends, HTTPException, status, Query as QueryParam
 from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Date, desc, asc
 from datetime import datetime, timedelta, time
-from typing import List, Optional, Any, Dict
+from typing import Optional
 
 from ..database import get_db
 from ..models.feedback import Feedback
-from ..models.conversation import Conversation, conversation_queries 
-from ..schemas.query import (
-    QueryRequest,
-    QueryResponse,
-    QueryHistory,
-    QueryFeedbackCreate,
-)
-
+from ..models.conversation import Conversation
+from ..schemas.query import QueryRequest, QueryResponse, QueryHistory, QueryFeedbackCreate
 from ..services.rag_service_gemini import RAGServiceGemini
 from ..utils.security import get_current_user
 from ..models.user import User
-from ..models.document import Query as QueryModel, Document 
-from ..models.conversation import conversation_documents  
+from ..models.document import Query as QueryModel
 
 router = APIRouter(prefix="/query", tags=["Query & RAG"])
 
 
-# -------------------------------
-# 1) Query documents with CONVERSATION SUPPORT
-# -------------------------------
+# ==========================================================
+# 1) SEND QUERY - MAIN ENDPOINT
+# ==========================================================
 @router.post("/", response_model=QueryResponse)
 async def query_documents(
     request: QueryRequest,
-    conversation_id: Optional[int] = QueryParam(None),  # ✅ NEW PARAMETER
+    conversation_id: Optional[int] = QueryParam(None),  # ✅ Query param
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Query tài liệu với AI (Gemini).
+    Send query to RAG service.
     
-    ✅ NEW: Nếu cung cấp conversation_id, query sẽ được thêm vào conversation đó.
+    ✅ If conversation_id provided:
+       - Validate conversation belongs to user
+       - Link query to conversation via FK
     """
     rag_service = RAGServiceGemini()
 
-    # ✅ Validate conversation nếu được cung cấp
+    # ✅ Validate conversation if provided
+    conversation = None
     if conversation_id:
         conversation = db.query(Conversation).filter(
             Conversation.id == conversation_id,
@@ -54,7 +50,7 @@ async def query_documents(
                 detail="Conversation not found or not owned by you"
             )
 
-    # Gọi RAG service
+    # ✅ Execute RAG query
     result = await rag_service.query_documents(
         db=db,
         user=current_user,
@@ -63,7 +59,7 @@ async def query_documents(
         max_results=request.max_results
     )
 
-    # Nếu RAG trả về kết quả KHÔNG có query_id
+    # ✅ No documents found case
     if "query_id" not in result:
         return {
             "query_id": None,
@@ -75,27 +71,24 @@ async def query_documents(
             "created_at": datetime.utcnow()
         }
 
-    # ✅ NEW: Add query to conversation if conversation_id provided
-    if conversation_id and result.get("query_id"):
+    # ✅ Link query to conversation if provided
+    if conversation and result.get("query_id"):
         try:
-            # Get the created query
             query = db.query(QueryModel).filter(QueryModel.id == result["query_id"]).first()
             
             if query:
-                # Add query to conversation
-                conversation.queries.append(query)
+                # ✅ Set FK directly
+                query.conversation_id = conversation.id
                 
-                # Update conversation's updated_at timestamp
+                # Update conversation timestamp
                 conversation.updated_at = datetime.utcnow()
                 
                 db.commit()
-                print(f"✅ Added query {query.id} to conversation {conversation_id}")
+                print(f"✅ Linked query {query.id} to conversation {conversation.id}")
         except Exception as e:
-            print(f"⚠️ Failed to add query to conversation: {e}")
-            # Don't fail the whole request if conversation link fails
+            print(f"⚠️ Failed to link query to conversation: {e}")
             db.rollback()
 
-    # Trả về response
     return {
         "query_id": result["query_id"],
         "query_text": request.query_text,
@@ -107,9 +100,9 @@ async def query_documents(
     }
 
 
-# -------------------------------
-# 2) Get history with filters - UPDATED to include conversation_id
-# -------------------------------
+# ==========================================================
+# 2) GET QUERY HISTORY
+# ==========================================================
 @router.get("/history", response_model=QueryHistory)
 def get_query_history(
     skip: int = QueryParam(0, ge=0),
@@ -119,24 +112,16 @@ def get_query_history(
     search: Optional[str] = QueryParam(None),
     sort_by: Optional[str] = QueryParam("date", regex="^(date|rating|relevance)$"),
     order: Optional[str] = QueryParam("desc", regex="^(asc|desc)$"),
-    conversation_id: Optional[int] = QueryParam(None),  # ✅ NEW: Filter by conversation
+    conversation_id: Optional[int] = QueryParam(None),  # ✅ Filter by conversation
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Get query history for current user with:
-      - pagination (skip, limit)
-      - optional date range filter (YYYY-MM-DD)
-      - text search (ILIKE)
-      - sort_by: date|rating|relevance
-      - order: asc|desc
-      - conversation_id: filter by conversation (NEW)
-    """
+    """Get query history with optional conversation filter"""
+    
     q = db.query(QueryModel).filter(QueryModel.user_id == current_user.id)
     
-    # ✅ NEW: Filter by conversation_id if provided
+    # ✅ Filter by conversation if provided
     if conversation_id:
-        # Verify conversation belongs to user
         conversation = db.query(Conversation).filter(
             Conversation.id == conversation_id,
             Conversation.user_id == current_user.id
@@ -145,13 +130,12 @@ def get_query_history(
         if not conversation:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Conversation not found or not owned by you"
+                detail="Conversation not found"
             )
         
-        # Filter queries by conversation_id
         q = q.filter(QueryModel.conversation_id == conversation_id)
 
-    # parse/filter dates
+    # Date filters
     try:
         if date_from:
             start_date = datetime.strptime(date_from, "%Y-%m-%d")
@@ -162,103 +146,28 @@ def get_query_history(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format, use YYYY-MM-DD")
 
-    # search
+    # Search
     if search:
-        safe = (
-            search.replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
-            .replace("#", "\\#")
-            .replace("/", "\\/")
-        )
+        safe = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         q = q.filter(QueryModel.query_text.ilike(f"%{safe}%", escape="\\"))
 
-    # choose sort column
-    sort_col = QueryModel.created_at
-    if sort_by == "rating":
-        sort_col = QueryModel.rating
-    elif sort_by == "relevance":
-        sort_col = QueryModel.created_at
-
-    if order == "desc":
-        q = q.order_by(desc(sort_col))
-    else:
-        q = q.order_by(asc(sort_col))
+    # Sort
+    sort_col = QueryModel.created_at if sort_by != "rating" else QueryModel.rating
+    q = q.order_by(desc(sort_col) if order == "desc" else asc(sort_col))
 
     total = q.count()
     items = q.offset(skip).limit(limit).all()
 
+    # Format response
     formatted = []
     for row in items:
-        # normalize sources for response
         sources = row.sources or []
-        if isinstance(sources, dict) and "sources" in sources and isinstance(sources["sources"], list):
-            out_sources = sources["sources"]
-        elif isinstance(sources, list):
-            out_sources = sources
-        else:
-            out_sources = []
+        if isinstance(sources, dict) and "sources" in sources:
+            sources = sources["sources"]
+        elif not isinstance(sources, list):
+            sources = []
 
-        normalized_sources = []
-        for s in out_sources:
-            if not isinstance(s, dict):
-                continue
-            normalized_sources.append(
-                {
-                    "document_id": s.get("document_id"),
-                    "document_title": s.get("document_title"),
-                    "page_number": s.get("page_number"),
-                    "similarity_score": s.get("similarity_score"),
-                    "text": s.get("text"),
-                }
-            )
-
-        formatted.append(
-            {
-                "query_id": row.id,
-                "query_text": row.query_text,
-                "answer": row.response_text or "",
-                "sources": normalized_sources,
-                "processing_time_ms": row.execution_time or 0,
-                "confidence_score": 0.0,
-                "created_at": row.created_at,
-            }
-        )
-
-    return {"queries": formatted, "total": total}
-
-
-# -------------------------------
-# 3) Get query detail - UPDATED to include conversation info
-# -------------------------------
-@router.get("/{query_id}", response_model=QueryResponse)
-def get_query_detail(
-    query_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    query = (
-        db.query(QueryModel)
-        .filter(QueryModel.id == query_id, QueryModel.user_id == current_user.id)
-        .first()
-    )
-    if not query:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Query not found")
-
-    # normalize sources
-    sources = query.sources or []
-    if isinstance(sources, dict) and "sources" in sources and isinstance(sources["sources"], list):
-        out_sources = sources["sources"]
-    elif isinstance(sources, list):
-        out_sources = sources
-    else:
-        out_sources = []
-
-    normalized_sources = []
-    for s in out_sources:
-        if not isinstance(s, dict):
-            continue
-        normalized_sources.append(
+        normalized_sources = [
             {
                 "document_id": s.get("document_id"),
                 "document_title": s.get("document_title"),
@@ -266,7 +175,58 @@ def get_query_detail(
                 "similarity_score": s.get("similarity_score"),
                 "text": s.get("text"),
             }
-        )
+            for s in sources if isinstance(s, dict)
+        ]
+
+        formatted.append({
+            "query_id": row.id,
+            "query_text": row.query_text,
+            "answer": row.response_text or "",
+            "sources": normalized_sources,
+            "processing_time_ms": row.execution_time or 0,
+            "confidence_score": 0.0,
+            "created_at": row.created_at,
+        })
+
+    return {"queries": formatted, "total": total}
+
+
+# ==========================================================
+# 3) GET QUERY DETAIL
+# ==========================================================
+@router.get("/{query_id}", response_model=QueryResponse)
+def get_query_detail(
+    query_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get single query detail"""
+    
+    query = db.query(QueryModel).filter(
+        QueryModel.id == query_id,
+        QueryModel.user_id == current_user.id
+    ).first()
+    
+    if not query:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Query not found")
+
+    # Normalize sources
+    sources = query.sources or []
+    if isinstance(sources, dict) and "sources" in sources:
+        sources = sources["sources"]
+    elif not isinstance(sources, list):
+        sources = []
+
+    normalized_sources = [
+        {
+            "document_id": s.get("document_id"),
+            "document_title": s.get("document_title"),
+            "page_number": s.get("page_number"),
+            "similarity_score": s.get("similarity_score"),
+            "text": s.get("text"),
+        }
+        for s in sources if isinstance(s, dict)
+    ]
 
     return {
         "query_id": query.id,

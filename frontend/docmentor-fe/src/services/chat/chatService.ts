@@ -1,91 +1,54 @@
-// src/services/chat/chatService.ts - UPDATED for Backend Integration
+// src/services/chat/chatService.ts
 
 import { ChatMessage, Conversation } from "@/types/chat.types";
 import { queryApiService } from "@/services/api/queryApiService";
+import axios from "axios";
 
-// ✨ SWITCH: Chuyển sang Real API
-const USE_MOCK_MODE = false;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 // ============================================================
-// TYPES
+// AXIOS INSTANCE FOR CONVERSATIONS
 // ============================================================
+const conversationApi = axios.create({
+  baseURL: `${API_BASE_URL}/conversations`,
+  headers: { "Content-Type": "application/json" },
+  withCredentials: true,
+});
 
-interface QueryResponse {
-  query_id: number | null;
-  query_text: string;
-  answer: string;
-  sources: Array<{
-    document_id: number;
-    document_title?: string;
-    page_number?: number;
-    similarity_score?: number;
-    text?: string;
-  }>;
-  processing_time_ms: number;
-  confidence_score: number;
-  created_at: string;
-}
-
-interface SendMessageWithFilePayload {
-  message: string;
-  file?: File;
-  conversationId?: string | null;
-  sessionId?: string | null;
-}
-
-interface StartGuestSessionPayload {
-  message: string;
-  file?: File;
-}
-
-interface CreateNewConversationPayload {
-  title: string;
-  initialMessage: string;
-  file?: File;
-  documentIds?: (string | number)[]; // Cho phép cả string và number khi nhận
-}
+conversationApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 // ============================================================
 // HELPER FUNCTIONS
 // ============================================================
 
-const createMessage = (
-  id: string,
-  text: string,
-  sender: "user" | "ai",
-  file?: File
-): ChatMessage => ({
-  id,
-  text,
-  sender,
-  timestamp: new Date().toISOString(),
-  status: sender === "user" ? "sent" : undefined,
-  attachment:
-    file && sender === "user"
-      ? {
-          fileName: file.name,
-          fileSize: file.size,
-          fileType: file.type,
-        }
-      : undefined,
-});
+const convertToChatMessages = (queries: any[]): ChatMessage[] => {
+  const messages: ChatMessage[] = [];
 
-const convertToChatMessages = (query: QueryResponse): ChatMessage[] => {
-  const messages: ChatMessage[] = []; // User message
+  queries.forEach((query) => {
+    // User message
+    messages.push({
+      id: `msg-user-${query.id}`,
+      text: query.query_text,
+      sender: "user",
+      timestamp: query.created_at,
+      status: "sent",
+    });
 
-  messages.push({
-    id: `msg-user-${query.query_id}`,
-    text: query.query_text,
-    sender: "user",
-    timestamp: query.created_at,
-    status: "sent",
-  }); // AI message
-
-  messages.push({
-    id: `msg-ai-${query.query_id}`,
-    text: query.answer,
-    sender: "ai",
-    timestamp: query.created_at,
+    // AI message
+    if (query.response_text) {
+      messages.push({
+        id: `msg-ai-${query.id}`,
+        text: query.response_text,
+        sender: "ai",
+        timestamp: query.created_at,
+      });
+    }
   });
 
   return messages;
@@ -96,183 +59,78 @@ const convertToChatMessages = (query: QueryResponse): ChatMessage[] => {
 // ============================================================
 
 export const chatService = {
-  queryDocuments: async (payload: {
-    message: string;
-    file?: File;
-    docIds?: string[];
-    conversationId?: number;
-  }): Promise<QueryResponse> => {
-    try {
-      if (USE_MOCK_MODE) {
-        console.log("🎭 MOCK MODE: Query response for:", payload.message);
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // Mock response
-        return {
-          query_id: Math.floor(Math.random() * 1000),
-          query_text: payload.message,
-          answer: "Mock response từ backend",
-          sources: [],
-          processing_time_ms: 1000,
-          confidence_score: 0.95,
-          created_at: new Date().toISOString(),
-        };
-      } // ✨ REAL API: Sử dụng queryApiService
-
-      // FIX: Chuyển đổi ID từ string[] sang number[]
-      const docIds = payload.docIds?.map((id) => parseInt(id, 10)) || [];
-      const response = await queryApiService.sendQuery(
-        payload.message,
-        docIds, // Hàm này đã chấp nhận number[]
-        5
-      );
-
-      return response;
-    } catch (error) {
-      console.error("❌ Query error:", error);
-      throw error;
-    }
-  }, // ✨ UPDATED: Get Conversations
-
+  // ✅ Get Conversations
   getConversations: async (): Promise<Conversation[]> => {
-    if (USE_MOCK_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      return [];
-    }
-
     try {
-      // ✨ REAL API: Get query history từ backend
-      const history = await queryApiService.getQueryHistory({
-        skip: 0,
-        limit: 100,
-        sort_by: "date",
-        order: "desc",
+      const response = await conversationApi.get("/", {
+        params: { skip: 0, limit: 100 },
       });
 
-      // ✅ FIX: Convert QueryResponse to Conversation
-      const conversations: Conversation[] = history.queries.map((query) => {
-        // Tạo title từ query_text
-        let title = query.query_text.substring(0, 50);
-        if (query.query_text.length > 50) {
-          title += "...";
-        }
-
-        // Nếu có conversation_id, dùng nó làm ID
-        // Nếu không, dùng query_id (cho backward compatibility)
-        const id = query.query_id?.toString() || `query-${Date.now()}`;
-
-        return {
-          id: id,
-          title: title,
-          createdAt: query.created_at,
-        };
-      });
-
-      return conversations;
+      return response.data.conversations.map((conv: any) => ({
+        id: conv.id.toString(),
+        title: conv.title,
+        createdAt: conv.created_at,
+      }));
     } catch (error) {
       console.error("❌ Get conversations error:", error);
       return [];
     }
   },
+
+  // ✅ Get Chat History (load all queries in conversation)
   getChatHistory: async (conversationId: string): Promise<ChatMessage[]> => {
-    if (USE_MOCK_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      return [];
-    }
-
     try {
-      // ✅ Xử lý ID local bắt đầu bằng "conv-"
-      if (conversationId.startsWith("conv-")) {
-        console.warn("⚠️ Local conversation ID detected:", conversationId);
-        return []; // Trả về rỗng cho conversation local
-      }
-
-      // ✨ REAL API: Get query detail từ backend
-      const queryId = parseInt(conversationId, 10);
-      if (isNaN(queryId)) {
-        console.warn("Invalid conversation ID:", conversationId);
+      // ✅ Handle temp conversations
+      if (conversationId.startsWith("temp-")) {
+        console.log("⚠️ Temp conversation, no history");
         return [];
       }
 
-      const query = await queryApiService.getQueryDetail(queryId);
-      return convertToChatMessages(query);
+      const response = await conversationApi.get(`/${conversationId}`);
+      const conversation = response.data;
+
+      return convertToChatMessages(conversation.queries || []);
     } catch (error) {
       console.error("❌ Get chat history error:", error);
       return [];
     }
   },
 
-  sendMessage: async (
-    _conversationId: string,
-    messageText: string
-  ): Promise<void> => {
-    if (USE_MOCK_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      return;
-    }
-
+  // ✅ Create New Conversation (NO initial query)
+  createNewConversation: async (payload: {
+    title: string;
+    initialMessage: string;
+    documentIds?: (string | number)[];
+  }): Promise<Conversation> => {
     try {
-      // ✨ REAL API: Send query to backend
-      await queryApiService.sendQuery(messageText, [], 5);
-    } catch (error) {
-      console.error("❌ Send message error:", error);
-      throw error;
-    }
-  }, // ✨ UPDATED: Send Message With File
-
-  sendMessageWithFile: async (
-    payload: SendMessageWithFilePayload
-  ): Promise<ChatMessage> => {
-    if (USE_MOCK_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      return createMessage(`msg-ai-${Date.now()}`, "Mock response", "ai");
-    }
-
-    try {
-      // ✨ REAL API: Send query with file
-      const docIds: number[] = [];
-      if (payload.conversationId) {
-        docIds.push(parseInt(payload.conversationId, 10));
-      }
-
-      const response = await queryApiService.sendQuery(
-        payload.message,
-        docIds,
-        5
-      );
-
-      const messages = convertToChatMessages(response);
-      return messages[1]; // Return AI response
-    } catch (error) {
-      console.error("❌ Send message with file error:", error);
-      throw error;
-    }
-  }, // ✨ UPDATED: Create New Conversation
-
-  createNewConversation: async (
-    payload: CreateNewConversationPayload
-  ): Promise<Conversation> => {
-    try {
-      const rawDocIds = payload.documentIds || [];
-
-      // Chuyển đổi ID
-      const numericDocIds = rawDocIds
+      const numericDocIds = (payload.documentIds || [])
         .map((id) => (typeof id === "string" ? parseInt(id, 10) : id))
         .filter((id): id is number => !isNaN(id));
 
-      const initialMessage =
-        payload.initialMessage || "Bắt đầu cuộc trò chuyện";
+      // ✅ Create conversation WITHOUT initial_query
+      const response = await conversationApi.post("/", {
+        title: payload.title,
+        document_ids: numericDocIds,
+        // ❌ NO initial_query here
+      });
 
-      // ✅ Gửi query để tạo conversation
-      const response = await queryApiService.sendQuery(
-        initialMessage,
+      const conversationId = response.data.id;
+      console.log("✅ Created conversation:", conversationId);
+
+      // ✅ Now send first query WITH conversation_id
+      await queryApiService.sendQuery(
+        payload.initialMessage,
         numericDocIds,
-        5
-        // ✅ KHÔNG truyền conversation_id (backend sẽ tạo mới)
+        5,
+        conversationId  // ← Link to conversation
       );
 
+      console.log("✅ Sent initial query to conversation");
+
       return {
-        id: response.query_id?.toString() || `query-${Date.now()}`,
-        title: payload.title,
-        createdAt: response.created_at,
+        id: conversationId.toString(),
+        title: response.data.title,
+        createdAt: response.data.created_at,
       };
     } catch (error) {
       console.error("❌ Create conversation error:", error);
@@ -280,100 +138,77 @@ export const chatService = {
     }
   },
 
-  startGuestSession: async (
-    payload: StartGuestSessionPayload
-  ): Promise<{ sessionId: string }> => {
-    if (USE_MOCK_MODE) {
-      await new Promise((res) => setTimeout(res, 1500));
-      return { sessionId: `guest-session-${Date.now()}` };
-    }
-
+  // ✅ Send Message in Conversation
+  sendMessageInConversation: async (
+    conversationId: string,
+    messageText: string,
+    documentIds: number[]
+  ): Promise<any> => {
     try {
-      // ✨ REAL API: Send initial query - guest session
-      const response = await queryApiService.sendQuery(payload.message, [], 5);
+      const convId = parseInt(conversationId, 10);
+      
+      if (isNaN(convId)) {
+        throw new Error("Invalid conversation ID");
+      }
 
+      const response = await queryApiService.sendQuery(
+        messageText,
+        documentIds,
+        5,
+        convId  // ← Pass conversation_id
+      );
+
+      return response;
+    } catch (error) {
+      console.error("❌ Send message error:", error);
+      throw error;
+    }
+  },
+
+  // ✅ Rename Conversation
+  renameConversation: async (id: string, newTitle: string): Promise<Conversation> => {
+    try {
+      const response = await conversationApi.put(`/${id}`, {
+        title: newTitle,
+      });
+
+      return {
+        id: response.data.id.toString(),
+        title: response.data.title,
+        createdAt: response.data.created_at,
+      };
+    } catch (error) {
+      console.error("❌ Rename conversation error:", error);
+      throw error;
+    }
+  },
+
+  // ✅ Delete Conversation
+  deleteConversation: async (id: string): Promise<void> => {
+    try {
+      await conversationApi.delete(`/${id}`);
+    } catch (error) {
+      console.error("❌ Delete conversation error:", error);
+      throw error;
+    }
+  },
+
+  // ✅ Start Guest Session
+  startGuestSession: async (payload: {
+    message: string;
+    file?: File;
+  }): Promise<{ sessionId: string }> => {
+    try {
+      const response = await queryApiService.sendQuery(payload.message, [], 5);
       return { sessionId: response.query_id?.toString() || "" };
     } catch (error) {
       console.error("❌ Start guest session error:", error);
       throw error;
     }
-  }, // ✨ NEW: Rename Conversation
+  },
 
-  renameConversation: async (
-    id: string,
-    newTitle: string
-  ): Promise<Conversation> => {
-    if (USE_MOCK_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    } // ℹ️ Backend không có API rename hiện tại
-
-    console.warn("⚠️ Rename conversation not supported by backend");
-
-    return {
-      id,
-      title: newTitle,
-      createdAt: new Date().toISOString(),
-    };
-  }, // ✨ NEW: Delete Conversation
-
-  deleteConversation: async (id: string): Promise<void> => {
-    if (USE_MOCK_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      return;
-    }
-
-    try {
-      // ✨ REAL API: Delete query
-      const queryId = parseInt(id, 10);
-      if (!isNaN(queryId)) {
-        await queryApiService.deleteQuery(queryId);
-      }
-    } catch (error) {
-      console.error("❌ Delete conversation error:", error);
-      throw error;
-    }
-  }, // ✨ NEW: Create Conversation With Context
-
-  createConversationWithContext: async (
-    docIds: string[]
-  ): Promise<Conversation> => {
-    if (USE_MOCK_MODE) {
-      await new Promise((res) => setTimeout(res, 500));
-      return {
-        id: `conv-${Date.now()}`,
-        title: `Trò chuyện về ${docIds.length} tài liệu`,
-        createdAt: new Date().toISOString(),
-      };
-    }
-
-    try {
-      // FIX: Đảm bảo chuyển đổi ID từ string[] sang number[]
-      const numericDocIds = docIds
-        .map((id) => parseInt(id, 10))
-        .filter((id) => !isNaN(id));
-
-      const initialMessage = `Phân tích ${docIds.length} tài liệu`;
-
-      const response = await queryApiService.sendQuery(
-        initialMessage,
-        numericDocIds, // Truyền mảng number[] đã được ép kiểu
-        5
-      );
-
-      return {
-        id: response.query_id?.toString() || `query-${Date.now()}`,
-        title: `Trò chuyện về ${docIds.length} tài liệu`,
-        createdAt: response.created_at,
-      };
-    } catch (error) {
-      console.error("❌ Create conversation with context error:", error);
-      throw error;
-    }
-  }, // ✨ NEW: Get Suggested Queries
-
+  // Utility methods
   getSuggestedQueries: async (): Promise<string[]> => {
-    await new Promise((resolve) => setTimeout(resolve, 100)); // ℹ️ Suggestions từ frontend
-
     return [
       "Tóm tắt tài liệu này",
       "Những điểm chính là gì?",
@@ -381,57 +216,5 @@ export const chatService = {
       "So sánh với...",
       "Tạo câu hỏi trắc nghiệm",
     ];
-  }, // ✨ NEW: Load Chat History (Adapter)
-
-  loadChatHistory: async (): Promise<ChatMessage[]> => {
-    try {
-      const conversations = await chatService.getConversations();
-      const messages: ChatMessage[] = [];
-
-      for (const conv of conversations) {
-        const convMessages = await chatService.getChatHistory(conv.id);
-        messages.push(...convMessages);
-      }
-
-      return messages;
-    } catch (error) {
-      console.error("❌ Load chat history error:", error);
-      return [];
-    }
-  }, // ✨ NEW: Get Query Stats
-
-  getQueryStats: async () => {
-    try {
-      return await queryApiService.getQueryStats();
-    } catch (error) {
-      console.error("❌ Get stats error:", error);
-      return {
-        total_queries: 0,
-        avg_rating: 0,
-        activity_last_7_days: [],
-      };
-    }
-  }, // ✨ NEW: Submit Feedback
-
-  submitFeedback: async (queryId: number, rating: number, text?: string) => {
-    try {
-      return await queryApiService.submitFeedback({
-        query_id: queryId,
-        rating,
-        feedback_text: text,
-      });
-    } catch (error) {
-      console.error("❌ Submit feedback error:", error);
-      throw error;
-    }
-  }, // ✨ NEW: Get Feedback
-
-  getFeedback: async (queryId: number) => {
-    try {
-      return await queryApiService.getFeedback(queryId);
-    } catch (error) {
-      console.error("❌ Get feedback error:", error);
-      return null;
-    }
   },
 };
