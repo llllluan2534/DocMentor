@@ -85,18 +85,43 @@ class GeminiService:
                     'temperature': 0.3,
                     'top_p': 0.8,
                     'top_k': 40,
-                    'max_output_tokens': 1024,
+                    'max_output_tokens': 2048,
                 }
             )
             
-            answer = response.text.strip()
-            logger.info(f"✅ Answer generated: {len(answer)} characters")
+            if response.candidates:
+                candidate = response.candidates[0]
+                finish_reason = candidate.finish_reason
+                
+                if finish_reason == 2:  # MAX_TOKENS
+                    logger.warning("⚠️ Response truncated (MAX_TOKENS)")
+                    # Try to get partial response
+                    if candidate.content and candidate.content.parts:
+                        partial = candidate.content.parts[0].text.strip()
+                        if partial:
+                            return partial + "\n\n[Câu trả lời bị cắt ngắn do quá dài]"
+                    return "Câu trả lời quá dài. Vui lòng đặt câu hỏi cụ thể hơn."
+                
+                elif finish_reason == 3:  # SAFETY
+                    logger.warning("⚠️ Blocked by safety filter")
+                    return "Tôi không thể trả lời câu hỏi này."
+                
+                elif finish_reason == 1:  # STOP (success)
+                    answer = response.text.strip()
+                    logger.info(f"✅ Answer generated: {len(answer)} chars")
+                    return answer
+                
+                else:
+                    logger.error(f"❌ Unknown finish_reason: {finish_reason}")
+                    return "Đã xảy ra lỗi khi tạo câu trả lời."
             
-            return answer
+            # Fallback
+            return "Không thể tạo câu trả lời."
             
         except Exception as e:
             logger.error(f"❌ Error generating answer: {str(e)}")
             raise
+
     
     async def generate_summary(self, text: str, length: str = "medium") -> str:
         """Generate summary of document"""
