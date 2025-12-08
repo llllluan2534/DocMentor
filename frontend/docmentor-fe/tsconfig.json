@@ -15,9 +15,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "ignoreDeprecations": "6.0",
+
     "baseUrl": ".",
-    "types": ["vite/client"],            
+    "types": ["vite/client"],
     "paths": {
       "@/*": ["./src/*"],
       "@components/*": ["./src/components/*"],

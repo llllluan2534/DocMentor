@@ -1,13 +1,12 @@
-// src/services/api/documentApiService.ts - Real API Service for Documents
-
+// src/services/api/documentApiService.ts
 import axios, { AxiosInstance } from "axios";
 
 // ============================================================
 // TYPES
 // ============================================================
 
-interface DocumentResponse {
-  id: string | number; // ✅ Accept both string and number
+export interface DocumentResponse {
+  id: string | number;
   user_id: number;
   title: string;
   file_path: string;
@@ -19,17 +18,17 @@ interface DocumentResponse {
   updated_at: string;
 }
 
-interface DocumentListResponse {
+export interface DocumentListResponse {
   total: number;
   documents: DocumentResponse[];
 }
 
-interface DocumentUploadResponse {
+export interface DocumentUploadResponse {
   message: string;
   document: DocumentResponse;
 }
 
-interface DocumentStatsResponse {
+export interface DocumentStatsResponse {
   total_documents: number;
   total_size: number;
   by_type: Record<string, number>;
@@ -37,22 +36,33 @@ interface DocumentStatsResponse {
   unprocessed_count: number;
 }
 
-interface DocumentFilters {
+export interface DocumentFilters {
   skip?: number;
   limit?: number;
   search?: string;
   file_type?: string;
   sort_by?: "date_desc" | "date_asc" | "title_asc" | "size_asc" | "size_desc";
+  folder_id?: string | number;
 }
 
-interface ApiError {
+export interface FolderResponse {
+  id: string | number;
+  name: string;
+  description?: string;
+}
+
+export interface FolderListResponse {
+  folders: FolderResponse[];
+}
+
+export interface ApiError {
   status: number;
   message: string;
   detail?: string;
 }
 
 // ============================================================
-// DOCUMENT API SERVICE
+// DOCUMENT & FOLDER API SERVICE
 // ============================================================
 
 class DocumentApiService {
@@ -61,7 +71,8 @@ class DocumentApiService {
 
   constructor() {
     this.apiBaseUrl =
-      (import.meta as any).env?.VITE_API_BASE_URL || "http://localhost:8000";
+      (import.meta as any).env?.VITE_API_BASE_URL ||
+      "https://docmentor-api.onrender.com";
 
     this.axiosInstance = axios.create({
       baseURL: this.apiBaseUrl,
@@ -74,18 +85,12 @@ class DocumentApiService {
     this.axiosInstance.interceptors.request.use(
       (config) => {
         const token = this.getAuthToken();
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
+        if (token) config.headers.Authorization = `Bearer ${token}`;
         return config;
       },
-      (error) => {
-        console.error("Request interceptor error:", error);
-        return Promise.reject(error);
-      }
+      (error) => Promise.reject(error)
     );
 
-    // ✨ Response Interceptor - Handle Errors
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       (error: any) => {
@@ -94,20 +99,14 @@ class DocumentApiService {
           message: error.message,
           detail: error.response?.data?.detail || error.response?.statusText,
         };
-
         console.error("API Error:", apiError);
-
-        if (error.response?.status === 401) {
-          console.warn("⚠️ 401 Unauthorized - Token may be invalid");
-        }
-
         return Promise.reject(apiError);
       }
     );
   }
 
   // ============================================================
-  // HELPER METHODS
+  // HELPERS
   // ============================================================
 
   private getAuthToken(): string | null {
@@ -117,61 +116,49 @@ class DocumentApiService {
   }
 
   private handleError(error: any): never {
-    if (error.status && error.message) {
-      throw error;
-    }
-    throw {
-      status: 500,
-      message: "An unknown error occurred",
-      detail: error.message,
-    };
+    if (error.status && error.message) throw error;
+    throw { status: 500, message: "Unknown error", detail: error.message };
   }
 
   // ============================================================
-  // DOCUMENT OPERATIONS
+  // DOCUMENT METHODS
   // ============================================================
 
-  /**
-   * 📄 Upload a document
-   */
   async uploadDocument(
     file: File,
     title?: string
   ): Promise<DocumentUploadResponse> {
     try {
-      console.log("📤 Uploading document:", { fileName: file.name, title });
-
       const formData = new FormData();
       formData.append("file", file);
-      if (title) {
-        formData.append("title", title);
+      if (title) formData.append("title", title);
+
+      const token = this.getAuthToken();
+      if (!token) throw { status: 401, message: "No auth token" };
+
+      const response = await fetch(`${this.apiBaseUrl}/documents/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw {
+          status: response.status,
+          message: "Upload failed",
+          detail: err.detail || err.message,
+        };
       }
 
-      const response = await this.axiosInstance.post<DocumentUploadResponse>(
-        "/documents/upload",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
-
-      console.log("✓ Document uploaded:", response.data);
-      return response.data;
+      return await response.json();
     } catch (error) {
-      console.error("❌ Upload document failed:", error);
       this.handleError(error);
     }
   }
 
-  /**
-   * 📋 Get user documents with filters
-   */
   async getDocuments(filters?: DocumentFilters): Promise<DocumentListResponse> {
     try {
-      console.log("📤 Fetching documents:", filters);
-
       const params = new URLSearchParams();
       if (filters?.skip !== undefined)
         params.append("skip", filters.skip.toString());
@@ -180,95 +167,124 @@ class DocumentApiService {
       if (filters?.search) params.append("search", filters.search);
       if (filters?.file_type) params.append("file_type", filters.file_type);
       if (filters?.sort_by) params.append("sort_by", filters.sort_by);
+      if (filters?.folder_id)
+        params.append("folder_id", filters.folder_id.toString());
 
-      const response = await this.axiosInstance.get<DocumentListResponse>(
+      const res = await this.axiosInstance.get<DocumentListResponse>(
         `/documents/?${params.toString()}`
       );
-
-      console.log("✓ Documents fetched:", response.data);
-      return response.data;
+      return res.data;
     } catch (error) {
-      console.error("❌ Fetch documents failed:", error);
       this.handleError(error);
     }
   }
 
-  /**
-   * 🔍 Get single document
-   */
   async getDocument(documentId: string): Promise<DocumentResponse> {
     try {
-      console.log("📤 Fetching document:", documentId);
-
-      const response = await this.axiosInstance.get<DocumentResponse>(
+      const res = await this.axiosInstance.get<DocumentResponse>(
         `/documents/${documentId}`
       );
-
-      console.log("✓ Document fetched:", response.data);
-      return response.data;
+      return res.data;
     } catch (error) {
-      console.error("❌ Fetch document failed:", error);
       this.handleError(error);
     }
   }
 
-  /**
-   * ✏️ Update document (title, metadata)
-   */
+  async downloadDocument(documentId: string): Promise<Blob> {
+    try {
+      const res = await this.axiosInstance.get(
+        `/documents/${documentId}/download`,
+        {
+          responseType: "blob",
+        }
+      );
+      return res.data;
+    } catch (error) {
+      this.handleError(error);
+    }
+  }
+
   async updateDocument(
     documentId: string,
     title?: string,
     metadata?: Record<string, any>
   ): Promise<DocumentResponse> {
     try {
-      console.log("📤 Updating document:", { documentId, title });
-
-      const response = await this.axiosInstance.put<DocumentResponse>(
+      const res = await this.axiosInstance.put<DocumentResponse>(
         `/documents/${documentId}`,
-        {
-          title,
-          metadata,
-        }
+        { title, metadata }
       );
-
-      console.log("✓ Document updated:", response.data);
-      return response.data;
+      return res.data;
     } catch (error) {
-      console.error("❌ Update document failed:", error);
       this.handleError(error);
     }
   }
 
-  /**
-   * 🗑️ Delete document
-   */
   async deleteDocument(documentId: string): Promise<void> {
     try {
-      console.log("📤 Deleting document:", documentId);
-
       await this.axiosInstance.delete(`/documents/${documentId}`);
-
-      console.log("✓ Document deleted:", documentId);
     } catch (error) {
-      console.error("❌ Delete document failed:", error);
       this.handleError(error);
     }
   }
 
-  /**
-   * 📊 Get document statistics
-   */
   async getDocumentStats(): Promise<DocumentStatsResponse> {
     try {
-      console.log("📤 Fetching document stats");
-
-      const response =
+      const res =
         await this.axiosInstance.get<DocumentStatsResponse>("/documents/stats");
-
-      console.log("✓ Stats fetched:", response.data);
-      return response.data;
+      return res.data;
     } catch (error) {
-      console.error("❌ Fetch stats failed:", error);
+      this.handleError(error);
+    }
+  }
+
+  // ============================================================
+  // FOLDER METHODS
+  // ============================================================
+
+  async getFolders(): Promise<FolderListResponse> {
+    try {
+      const res = await this.axiosInstance.get<FolderListResponse>("/folders");
+      return res.data;
+    } catch (error) {
+      this.handleError(error);
+    }
+  }
+
+  async createFolder(data: {
+    name: string;
+    description?: string;
+  }): Promise<{ folder: FolderResponse }> {
+    try {
+      const res = await this.axiosInstance.post<{ folder: FolderResponse }>(
+        "/folders",
+        data
+      );
+      return res.data;
+    } catch (error) {
+      this.handleError(error);
+    }
+  }
+
+  async renameFolder(
+    folderId: string | number,
+    newName: string
+  ): Promise<{ folder: FolderResponse }> {
+    try {
+      const res = await this.axiosInstance.put<{ folder: FolderResponse }>(
+        `/folders/${folderId}`,
+        { name: newName }
+      );
+      return res.data;
+    } catch (error) {
+      this.handleError(error);
+    }
+  }
+
+  async deleteFolder(folderId: string | number): Promise<void> {
+    try {
+      await this.axiosInstance.delete(`/folders/${folderId}`);
+    } catch (error) {
       this.handleError(error);
     }
   }
@@ -277,10 +293,7 @@ class DocumentApiService {
   // UTILITY METHODS
   // ============================================================
 
-  /**
-   * Set auth token (call after login)
-   */
-  setAuthToken(token: string, persistent: boolean = false): void {
+  setAuthToken(token: string, persistent: boolean = false) {
     if (persistent) {
       localStorage.setItem("auth_token", token);
       sessionStorage.removeItem("auth_token");
@@ -290,17 +303,11 @@ class DocumentApiService {
     }
   }
 
-  /**
-   * Clear auth token (call on logout)
-   */
-  clearAuthToken(): void {
+  clearAuthToken() {
     localStorage.removeItem("auth_token");
     sessionStorage.removeItem("auth_token");
   }
 
-  /**
-   * Get axios instance for advanced usage
-   */
   getAxiosInstance(): AxiosInstance {
     return this.axiosInstance;
   }
@@ -311,12 +318,3 @@ class DocumentApiService {
 // ============================================================
 
 export const documentApiService = new DocumentApiService();
-
-export type {
-  DocumentResponse,
-  DocumentListResponse,
-  DocumentUploadResponse,
-  DocumentStatsResponse,
-  DocumentFilters,
-  ApiError,
-};

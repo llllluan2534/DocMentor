@@ -1,30 +1,43 @@
-// Chat types
+// ============================================================
+// FILE: types/chat.types.ts
+// ============================================================
+
+// ✅ SourceReference interface - định nghĩa source tham khảo
 export interface SourceReference {
   documentId: string;
   documentTitle: string;
-  pageNumber?: number;
+  pageNumber: number | null;
 }
 
+// ✅ ChatMessage interface - định nghĩa một tin nhắn trong chat
 export interface ChatMessage {
   id: string;
   text: string;
   sender: "user" | "ai";
-  timestamp: string; // ISO string format
+  timestamp: string;
   sources?: SourceReference[];
-  // ✨ FIX: Thêm trạng thái 'sending' để không bị lỗi type
-  status?: "sent" | "error" | "sending";
+  status?: "sent" | "error" | "sending" | "loading";
+
   attachment?: {
     fileName: string;
     fileSize: number;
     fileType: string;
   };
+
+  // ✅ THÊM MỚI: Documents được sử dụng để trả lời
+  attachedDocuments?: Array<{
+    id: string;
+    title: string;
+  }>;
 }
 
+// ✅ Conversation interface - định nghĩa một cuộc trò chuyện
 export interface Conversation {
   id: string;
   title: string;
-  createdAt: string; // ISO string
+  createdAt: string;
+  updatedAt?: string;
 }
 
-// ✨ FIX: Export alias Message để ChatContainer không bị lỗi import
+// ✨ Type alias for backward compatibility
 export type Message = ChatMessage;

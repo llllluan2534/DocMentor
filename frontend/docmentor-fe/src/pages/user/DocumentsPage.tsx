@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { FiEdit2, FiX } from "react-icons/fi";
 
 import { documentService } from "@/services/document/documentService";
-import { Document } from "@/types/document.types";
+import { Document, Folder } from "@/types/document.types";
 import { DocumentGrid } from "@/features/documents/components/user/DocumentGrid";
 import { DocumentList } from "@/features/documents/components/user/DocumentList";
 import { DocumentSearch } from "@/features/documents/components/user/DocumentSearch";
@@ -15,6 +15,7 @@ import { Pagination } from "@/components/common/Pagination/Pagination";
 import { useDebounce } from "@/hooks/common/useDebounce";
 import Button from "@/components/common/Button";
 import { DocumentUploadModal } from "@/features/documents/components/user/DocumentUploadModal";
+import { FolderManager } from "@/features/documents/components/user/FolderManager";
 
 type ViewMode = "grid" | "list";
 type SortOption =
@@ -26,12 +27,20 @@ type SortOption =
 
 interface ExtendedFilters extends Filters {
   sortBy?: SortOption;
+  dateRange?: "all" | "today" | "week" | "month" | "3months";
+  status?: string;
 }
+
+const DOCUMENTS_PER_PAGE = 10;
 
 const DocumentsPage: React.FC = () => {
   const navigate = useNavigate();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [filteredDocuments, setFilteredDocuments] = useState<Document[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<
+    string | number | null
+  >(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -46,8 +55,18 @@ const DocumentsPage: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
 
-  const DOCUMENTS_PER_PAGE = 10;
+  // Fetch folders
+  const fetchFolders = useCallback(async () => {
+    try {
+      const foldersList = await documentService.getFolders();
+      setFolders(foldersList);
+    } catch (err) {
+      console.error("Failed to fetch folders:", err);
+      setError("Không thể tải thư mục. Vui lòng thử lại sau.");
+    }
+  }, []);
 
+  // Fetch documents
   const fetchDocuments = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -55,6 +74,7 @@ const DocumentsPage: React.FC = () => {
         page: currentPage,
         limit: DOCUMENTS_PER_PAGE,
         query: debouncedSearchQuery,
+        folderId: selectedFolderId || undefined,
       });
       setDocuments(response.data);
       setTotalPages(Math.ceil(response.total / DOCUMENTS_PER_PAGE));
@@ -62,49 +82,88 @@ const DocumentsPage: React.FC = () => {
     } catch (err: any) {
       console.error("❌ Fetch documents error:", err);
       if (err?.status === 401) {
-        console.warn("🔒 Unauthorized - Redirecting to login");
-        // Xóa token và redirect
         localStorage.removeItem("auth_token");
         sessionStorage.removeItem("auth_token");
         navigate("/login", { replace: true });
         return;
       }
-
-      // Các lỗi khác
       setError("Không thể tải tài liệu. Vui lòng thử lại sau.");
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, debouncedSearchQuery, navigate]);
+  }, [currentPage, debouncedSearchQuery, selectedFolderId, navigate]);
 
+  // Apply filters
   useEffect(() => {
     let result = [...documents];
 
     if (filters.type) {
-      result = result.filter((doc) => doc.type === filters.type);
+      const filterType = filters.type.toLowerCase();
+      result = result.filter(
+        (doc) => (doc.type?.toLowerCase() || "") === filterType
+      );
     }
 
-    if (filters.sortBy === "date_desc") {
-      result.sort(
-        (a, b) =>
-          new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
+    if (filters.status) {
+      result = result.filter((doc) => doc.status === filters.status);
+    }
+
+    if (filters.dateRange && filters.dateRange !== "all") {
+      const now = new Date();
+      let daysAgo = 0;
+
+      switch (filters.dateRange) {
+        case "today":
+          daysAgo = 0;
+          break;
+        case "week":
+          daysAgo = 7;
+          break;
+        case "month":
+          daysAgo = 30;
+          break;
+        case "3months":
+          daysAgo = 90;
+          break;
+      }
+
+      const cutoffDate = new Date(
+        now.getTime() - daysAgo * 24 * 60 * 60 * 1000
       );
-    } else if (filters.sortBy === "date_asc") {
-      result.sort(
-        (a, b) =>
-          new Date(a.uploadDate).getTime() - new Date(b.uploadDate).getTime()
-      );
-    } else if (filters.sortBy === "title_asc") {
-      result.sort((a, b) => a.title.localeCompare(b.title));
-    } else if (filters.sortBy === "size_asc") {
-      result.sort((a, b) => a.fileSize - b.fileSize);
-    } else if (filters.sortBy === "size_desc") {
-      result.sort((a, b) => b.fileSize - a.fileSize);
+
+      result = result.filter((doc) => new Date(doc.uploadDate) >= cutoffDate);
+    }
+
+    switch (filters.sortBy) {
+      case "date_desc":
+        result.sort(
+          (a, b) =>
+            new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
+        );
+        break;
+      case "date_asc":
+        result.sort(
+          (a, b) =>
+            new Date(a.uploadDate).getTime() - new Date(b.uploadDate).getTime()
+        );
+        break;
+      case "title_asc":
+        result.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      case "size_asc":
+        result.sort((a, b) => a.fileSize - b.fileSize);
+        break;
+      case "size_desc":
+        result.sort((a, b) => b.fileSize - a.fileSize);
+        break;
     }
 
     setFilteredDocuments(result);
   }, [documents, filters]);
 
+  useEffect(() => {
+    fetchFolders();
+  }, [fetchFolders]);
   useEffect(() => {
     fetchDocuments();
   }, [fetchDocuments]);
@@ -113,105 +172,123 @@ const DocumentsPage: React.FC = () => {
     setSearchQuery(query);
     setCurrentPage(1);
   };
-
   const handleFilterChange = (newFilters: Partial<ExtendedFilters>) => {
     setFilters((prev) => ({ ...prev, ...newFilters }));
     setCurrentPage(1);
   };
+  const handleViewDocument = (id: string) => {
+    navigate(`/user/documents/${id}`);
+  };
 
   const handleStartEdit = (doc: Document) => {
-    setEditingId(String(doc.id)); // Convert to string immediately
+    setEditingId(String(doc.id));
     setEditingTitle(doc.title || "");
   };
-
   const handleSaveEdit = async (id: string) => {
-    if (editingTitle.trim()) {
-      try {
-        await documentService.renameDocument(id, editingTitle);
-        setDocuments((prev) =>
-          prev.map((doc) =>
-            String(doc.id) === id ? { ...doc, title: editingTitle } : doc
-          )
-        );
-        setEditingId(null);
-      } catch (error) {
-        console.error("Failed to update document:", error);
-        setError("Cập nhật tên tài liệu thất bại.");
-      }
-    } else {
+    if (!editingTitle.trim()) return setEditingId(null);
+    try {
+      await documentService.renameDocument(id, editingTitle);
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          String(doc.id) === id ? { ...doc, title: editingTitle } : doc
+        )
+      );
       setEditingId(null);
+    } catch (err) {
+      console.error("Failed to update document:", err);
+      setError("Cập nhật tên tài liệu thất bại.");
     }
-  }; // FIX: Cập nhật state documents trực tiếp bằng dữ liệu từ modal
-
-  const handleUploadSuccess = (newDoc: Document) => {
-    // Đã khớp signature với modal
-    setIsUploadModalOpen(false); // Cập nhật State documents trực tiếp để bỏ qua cache cũ
-    setDocuments((prevDocuments) => {
-      // Đảm bảo không có ID trùng lặp
-      if (prevDocuments.some((doc) => doc.id === newDoc.id)) {
-        return prevDocuments;
-      }
-      return [newDoc, ...prevDocuments]; // Thêm vào đầu danh sách
-    }); // Cập nhật tổng số trang (Đã sửa lỗi cảnh báo bằng cách không dùng giá trị cũ)
-    setTotalPages(Math.ceil((documents.length + 1) / DOCUMENTS_PER_PAGE)); // Tùy chọn: Gọi fetchDocuments sau một thời gian ngắn để đồng bộ hóa total count chính xác
-    // setTimeout(() => fetchDocuments(), 5000);
   };
-
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditingTitle("");
   };
 
   const handleDeleteDocument = async (id: string) => {
-    if (window.confirm("Bạn có chắc chắn muốn xóa tài liệu này không?")) {
-      try {
-        await documentService.deleteDocument(id);
-        setDocuments((prevDocuments) =>
-          prevDocuments.filter((doc) => String(doc.id) !== id)
-        );
-      } catch (error) {
-        console.error("Failed to delete document:", error);
-        setError("Xóa tài liệu thất bại.");
-      }
+    if (!window.confirm("Bạn có chắc chắn muốn xóa tài liệu này không?"))
+      return;
+    try {
+      await documentService.deleteDocument(id);
+      setDocuments((prev) => prev.filter((doc) => String(doc.id) !== id));
+    } catch (err) {
+      console.error("Failed to delete document:", err);
+      setError("Xóa tài liệu thất bại.");
     }
+  };
+
+  // Folder handlers
+  const handleSelectFolder = (folderId: string | number | null) => {
+    setSelectedFolderId(folderId);
+    setCurrentPage(1);
+  };
+
+  const handleCreateFolder = async (name: string, description?: string) => {
+    try {
+      const newFolder = await documentService.createFolder(name, description);
+      setFolders((prev) => [...prev, newFolder]);
+    } catch (err) {
+      console.error("Failed to create folder:", err);
+      setError("Tạo thư mục thất bại.");
+    }
+  };
+
+  const handleDeleteFolder = async (folderId: string | number) => {
+    try {
+      await documentService.deleteFolder(folderId);
+      setFolders((prev) => prev.filter((folder) => folder.id !== folderId));
+      if (selectedFolderId === folderId) setSelectedFolderId(null);
+    } catch (err) {
+      console.error("Failed to delete folder:", err);
+      setError("Xóa thư mục thất bại.");
+    }
+  };
+
+  const handleRenameFolder = async (
+    folderId: string | number,
+    newName: string
+  ) => {
+    try {
+      await documentService.renameFolder(folderId, newName);
+      setFolders((prev) =>
+        prev.map((folder) =>
+          folder.id === folderId ? { ...folder, name: newName } : folder
+        )
+      );
+    } catch (err) {
+      console.error("Failed to rename folder:", err);
+      setError("Đổi tên thư mục thất bại.");
+    }
+  };
+
+  const handleUploadSuccess = (newDoc: Document) => {
+    setIsUploadModalOpen(false);
+    setDocuments((prev) => [newDoc, ...prev]);
+    setTotalPages(Math.ceil((documents.length + 1) / DOCUMENTS_PER_PAGE));
   };
 
   return (
     <div className="relative min-h-screen p-4 pb-24 bg-background md:p-6 lg:p-8">
-            {/* Header */}     {" "}
+      {/* Header */}
       <div className="relative p-6 mb-6 overflow-hidden border rounded-2xl bg-gradient-to-br from-accent via-accent to-background border-primary/20 md:p-8 animate-fade-in">
-               {" "}
         <div className="absolute top-0 right-0 w-64 h-64 translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-3xl"></div>
-               {" "}
         <div className="absolute bottom-0 left-0 w-48 h-48 -translate-x-1/2 translate-y-1/2 rounded-full bg-secondary/10 blur-3xl"></div>
-               {" "}
         <div className="relative z-10 flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-                   {" "}
           <div className="animate-slide-in-left">
-                       {" "}
             <h1 className="flex items-center gap-3 mb-2 text-3xl font-bold text-transparent md:text-4xl bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text">
-                            <FiEdit2 className="w-8 h-8" />              Thư
-              viện tài liệu            {" "}
+              <FiEdit2 className="w-8 h-8" /> Thư viện tài liệu
             </h1>
-                       {" "}
             <p className="text-sm text-text-muted md:text-base">
-                            Quản lý và tìm kiếm tài liệu của bạn một cách dễ
-              dàng            {" "}
+              Quản lý và tìm kiếm tài liệu của bạn một cách dễ dàng
             </p>
-                     {" "}
           </div>
-                   {" "}
           <div className="flex items-center gap-3 animate-slide-in-right">
-                       {" "}
             <Button
               onClick={() => setIsUploadModalOpen(true)}
               className="bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white px-6 py-2.5 rounded-xl font-medium shadow-lg shadow-primary/30 transition-all duration-300 hover:scale-105"
             >
-                            + Tải lên tài liệu            {" "}
+              + Tải lên tài liệu
             </Button>
-                       {" "}
             <div className="flex items-center p-1 border bg-accent/80 backdrop-blur-sm rounded-xl border-primary/20">
-                           {" "}
               <button
                 onClick={() => setViewMode("grid")}
                 className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
@@ -220,19 +297,14 @@ const DocumentsPage: React.FC = () => {
                     : "text-text-muted hover:text-white"
                 }`}
               >
-                               {" "}
                 <svg
                   className="w-5 h-5"
                   fill="currentColor"
                   viewBox="0 0 20 20"
                 >
-                                   {" "}
                   <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                                 {" "}
                 </svg>
-                             {" "}
               </button>
-                           {" "}
               <button
                 onClick={() => setViewMode("list")}
                 className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
@@ -241,80 +313,66 @@ const DocumentsPage: React.FC = () => {
                     : "text-text-muted hover:text-white"
                 }`}
               >
-                               {" "}
                 <svg
                   className="w-5 h-5"
                   fill="currentColor"
                   viewBox="0 0 20 20"
                 >
-                                   {" "}
                   <path
                     fillRule="evenodd"
                     d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"
                     clipRule="evenodd"
                   />
-                                 {" "}
                 </svg>
-                             {" "}
               </button>
-                         {" "}
             </div>
-                     {" "}
           </div>
-                 {" "}
         </div>
-             {" "}
       </div>
-           {" "}
-      <div className="mb-6 animate-fade-in" style={{ animationDelay: "0.1s" }}>
-               {" "}
+
+      {/* Folder Manager */}
+      <div className="mb-6 p-4 border shadow-lg bg-accent/60 backdrop-blur-sm rounded-xl border-primary/20 animate-fade-in">
+        <FolderManager
+          folders={folders}
+          selectedFolderId={selectedFolderId}
+          onSelectFolder={handleSelectFolder}
+          onCreateFolder={handleCreateFolder}
+          onDeleteFolder={handleDeleteFolder}
+          onRenameFolder={handleRenameFolder}
+        />
+      </div>
+
+      {/* Search & Filter */}
+      <div className="relative z-30 mb-8 animate-fade-in">
         <div className="p-4 border shadow-lg bg-accent/60 backdrop-blur-sm rounded-xl border-primary/20">
-                   {" "}
-          <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
-                       {" "}
-            <div className="flex-1 w-full">
-                            <DocumentSearch onSearch={handleSearch} />         
-               {" "}
-            </div>
-                       {" "}
-            <div className="flex-shrink-0">
-                           {" "}
-              <DocumentFilter onFilterChange={handleFilterChange} />         
-               {" "}
-            </div>
-                                 {" "}
+          <div className="mb-4">
+            <DocumentSearch onSearch={handleSearch} />
           </div>
-                 {" "}
+          <div className="w-full">
+            <DocumentFilter onFilterChange={handleFilterChange} />
+          </div>
         </div>
-             {" "}
       </div>
-            {/* Documents */}     {" "}
-      <div className="animate-fade-in" style={{ animationDelay: "0.2s" }}>
-               {" "}
+
+      {/* Documents */}
+      <div className="relative z-10 animate-fade-in">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-64 border bg-accent/40 backdrop-blur-sm rounded-xl border-primary/20">
-                       {" "}
             <div className="w-8 h-8 border-2 rounded-full animate-spin border-primary border-t-secondary"></div>
-                     {" "}
           </div>
         ) : error ? (
           <div className="p-6 text-center border bg-red-500/10 border-red-500/30 rounded-xl">
-                       {" "}
             <div className="flex items-center justify-center gap-2 mb-2">
-                            <FiX className="w-5 h-5 text-red-400" />           
-                <p className="text-red-400">{error}</p>         {" "}
+              <FiX className="w-5 h-5 text-red-400" />
+              <p className="text-red-400">{error}</p>
             </div>
-                     {" "}
           </div>
         ) : filteredDocuments.length === 0 ? (
           <div className="p-12 text-center border bg-accent/40 backdrop-blur-sm border-primary/20 rounded-xl">
-                       {" "}
-            <p className="text-text-muted">Không tìm thấy tài liệu</p>       
-             {" "}
+            <p className="text-text-muted">Không tìm thấy tài liệu</p>
           </div>
         ) : (
           <>
-                       {" "}
             {viewMode === "grid" ? (
               <DocumentGrid
                 documents={filteredDocuments}
@@ -325,6 +383,7 @@ const DocumentsPage: React.FC = () => {
                 onSaveEdit={handleSaveEdit}
                 onCancelEdit={handleCancelEdit}
                 onEditingTitleChange={setEditingTitle}
+                onView={handleViewDocument}
               />
             ) : (
               <DocumentList
@@ -336,30 +395,26 @@ const DocumentsPage: React.FC = () => {
                 onSaveEdit={handleSaveEdit}
                 onCancelEdit={handleCancelEdit}
                 onEditingTitleChange={setEditingTitle}
+                onView={handleViewDocument}
               />
             )}
-                       {" "}
             <div className="mt-8">
-                           {" "}
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
                 onPageChange={setCurrentPage}
               />
-                         {" "}
             </div>
-                     {" "}
           </>
         )}
-             {" "}
       </div>
-            {/* Upload Modal */}     {" "}
+
+      {/* Upload Modal */}
       <DocumentUploadModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onUploadSuccess={handleUploadSuccess}
       />
-         {" "}
     </div>
   );
 };

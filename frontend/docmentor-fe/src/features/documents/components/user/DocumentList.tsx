@@ -1,5 +1,3 @@
-// src/features/documents/components/user/DocumentList.tsx
-
 import React from "react";
 import { Document } from "@/types/document.types";
 import { DocumentCard } from "@/features/documents/components/user/DocumentCard";
@@ -7,6 +5,8 @@ import { DocumentCard } from "@/features/documents/components/user/DocumentCard"
 interface DocumentListProps {
   documents: Document[];
   onDelete: (id: string) => void;
+  // ✅ Added onView prop
+  onView: (id: string) => void;
   editingId?: string | null;
   editingTitle?: string;
   onStartEdit?: (doc: Document) => void;
@@ -18,6 +18,7 @@ interface DocumentListProps {
 export const DocumentList: React.FC<DocumentListProps> = ({
   documents,
   onDelete,
+  onView, // ✅
   editingId,
   editingTitle,
   onStartEdit,
@@ -33,6 +34,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           document={doc}
           view="list"
           onDelete={onDelete}
+          onView={onView} // ✅ Pass down to card
           isSelected={false}
           onSelectionChange={() => {}}
           editingId={editingId}

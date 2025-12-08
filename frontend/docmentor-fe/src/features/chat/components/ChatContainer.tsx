@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom"; // ✅ Thêm useLocation
 import { FiPlus } from "react-icons/fi";
 import { ChatMessage, Conversation } from "@/types/chat.types";
 import { chatService } from "@/services/chat/chatService";
@@ -16,7 +16,7 @@ interface ChatContainerProps {
   sessionId: string | null;
   initialFile?: File | null;
   selectedDocuments?: Array<{ id: string; title: string }>;
-  conversations?: Conversation[]; // ✅ ADDED: To validate conversation existence
+  conversations?: Conversation[];
   onOpenDocumentModal?: () => void;
   onRemoveDocument?: (docId: string) => void;
   onCreateConversationFromHeroChat?: (
@@ -34,7 +34,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   onCreateConversationFromHeroChat,
   initialFile,
   selectedDocuments = [],
-  conversations = [], // ✅ ADDED
+  conversations = [],
   onOpenDocumentModal,
   onRemoveDocument,
 }) => {
@@ -43,8 +43,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+
   const navigate = useNavigate();
+  const location = useLocation(); // ✅ Hook để lấy dữ liệu truyền qua navigate
   const { user } = useAuth();
+
   const sessionId = propSessionId || searchParams.get("sessionId");
   const contextId = conversationId || sessionId;
 
@@ -53,12 +56,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   // ============================================================
 
   const isValidConversation = (convId: string): boolean => {
-    // ✅ CHỈ kiểm tra numeric ID
     const convIdNum = parseInt(convId, 10);
     return !isNaN(convIdNum);
   };
 
-  // ✅ Block auto-generated queries
   const isForbiddenQuery = (queryText: string): boolean => {
     const forbiddenQueries = [
       "Phân tích 1 tài liệu đã chọn",
@@ -74,7 +75,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   };
 
   // ============================================================
-  // LOAD CHAT HISTORY
+  // LOAD CHAT HISTORY (ĐÃ FIX ĐỂ GIỮ FILE)
   // ============================================================
 
   useEffect(() => {
@@ -84,7 +85,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         try {
           console.log("📖 Loading chat history for:", contextId);
 
-          // Temp conversation: no history
           if (contextId.startsWith("temp-")) {
             console.log("📝 Temporary conversation, no history to load");
             setMessages([]);
@@ -92,8 +92,39 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             return;
           }
 
+          // 1. Lấy dữ liệu từ Server
           const history = await chatService.getChatHistory(contextId);
           console.log("✅ Loaded messages:", history.length);
+
+          // 2. ✅ LOGIC FIX: Hợp nhất dữ liệu file từ 'state' nếu Server trả về thiếu
+          // (Dành cho trường hợp vừa tạo conversation xong mà API chưa kịp index file)
+          const navigationState = location.state as {
+            tempAttachment?: any;
+            tempDocs?: any;
+          } | null;
+
+          if (history.length > 0 && navigationState) {
+            // Tìm tin nhắn User đầu tiên (thường là tin nhắn tạo conversation)
+            const firstUserMsg = history.find((m) => m.sender === "user");
+
+            if (firstUserMsg) {
+              // Nếu lịch sử Server thiếu attachment nhưng ta có trong state -> Gán vào
+              if (!firstUserMsg.attachment && navigationState.tempAttachment) {
+                console.log("🛠️ Restoring missing attachment from state");
+                firstUserMsg.attachment = navigationState.tempAttachment;
+              }
+              // Tương tự với documents
+              if (
+                (!firstUserMsg.attachedDocuments ||
+                  firstUserMsg.attachedDocuments.length === 0) &&
+                navigationState.tempDocs
+              ) {
+                console.log("🛠️ Restoring missing documents from state");
+                firstUserMsg.attachedDocuments = navigationState.tempDocs;
+              }
+            }
+          }
+
           setMessages(history);
         } catch (error) {
           console.error("❌ Lỗi tải lịch sử chat:", error);
@@ -112,20 +143,18 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       }
     };
     loadData();
-  }, [contextId]);
+  }, [contextId, location.state]); // ✅ Thêm location.state vào dependency
 
   // ============================================================
   // HANDLE SEND MESSAGE - MAIN FUNCTION
   // ============================================================
 
   const handleSendMessage = async (messageText: string, file?: File) => {
-    // Validation
     if ((!messageText.trim() && !file) || isReplying) {
       console.log("⚠️ Message empty or already sending");
       return;
     }
 
-    // ✅ Block auto-generated queries
     if (isForbiddenQuery(messageText)) {
       console.error("❌ Blocked auto-generated query:", messageText);
       alert("Vui lòng nhập câu hỏi của riêng bạn!");
@@ -139,14 +168,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     });
     setIsReplying(true);
 
-    // ✅ CASE 1: Temp conversation - Convert to real
     if (contextId && contextId.startsWith("temp-")) {
       console.log("🔄 Converting temp conversation to real");
       await handleCreateNewConversation(messageText, file);
       return;
     }
 
-    // ✅ CASE 2: Existing real conversation
     if (contextId && messages.length > 0) {
       console.log("📝 Sending to existing conversation:", contextId);
 
@@ -166,21 +193,41 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       return;
     }
 
-    // ✅ CASE 3: No conversation - Create new
     console.log("🆕 Creating new conversation");
     await handleCreateNewConversation(messageText, file);
   };
 
   // ============================================================
-  // HELPER FUNCTIONS
+  // HELPER FUNCTIONS: CREATE NEW CONVERSATION (OPTIMISTIC + STATE PASSING)
   // ============================================================
 
-  // Create new conversation from scratch
   const handleCreateNewConversation = async (
     messageText: string,
     file?: File
   ) => {
-    // Upload file first if exists
+    // 1. TẠO TIN NHẮN GIẢ LẬP (Optimistic Update)
+    const tempId = `msg-temp-${Date.now()}`;
+    const userMessage: ChatMessage = {
+      id: tempId,
+      text: messageText,
+      sender: "user",
+      timestamp: new Date().toISOString(),
+      status: "sending",
+      // Hiển thị file ngay lập tức
+      attachment: file
+        ? {
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+          }
+        : undefined,
+      attachedDocuments:
+        selectedDocuments.length > 0 ? selectedDocuments : undefined,
+    };
+
+    setMessages([userMessage]);
+
+    // 2. Upload File & Create Conversation
     let uploadedDocId: number | null = null;
     if (file) {
       try {
@@ -195,12 +242,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         console.error("❌ Upload error:", error);
         alert("Lỗi tải file lên. Vui lòng thử lại.");
         setIsReplying(false);
+        setMessages([]); // Clear message lỗi
         return;
       }
     }
 
     if (!user) {
-      // Guest session
       try {
         console.log("👤 Creating guest session");
         const { sessionId: newSessionId } = await chatService.startGuestSession(
@@ -210,22 +257,19 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           }
         );
         setSearchParams({ sessionId: newSessionId });
-
-        // Load messages after creation
         const history = await chatService.getChatHistory(newSessionId);
         setMessages(history);
       } catch (error) {
         console.error("❌ Guest session error:", error);
         alert("Không thể bắt đầu phiên chat.");
+        setMessages([]);
       } finally {
         setIsReplying(false);
       }
     } else {
-      // User conversation
       try {
         console.log("👤 Creating user conversation");
 
-        // Collect document IDs
         const docIds = selectedDocuments
           .map((d) => parseInt(d.id, 10))
           .filter((id) => !isNaN(id));
@@ -234,9 +278,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           docIds.push(uploadedDocId);
         }
 
-        console.log("📚 Document IDs:", docIds);
-
-        // Create conversation with backend
         const newConversation = await chatService.createNewConversation({
           title: messageText.substring(0, 50) || "Cuộc trò chuyện mới",
           initialMessage: messageText,
@@ -244,9 +285,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         });
 
         const newConvId = newConversation.id;
-        console.log("✅ Conversation created:", newConvId);
 
-        // Notify parent
         if (onCreateConversationFromHeroChat) {
           onCreateConversationFromHeroChat(
             newConvId,
@@ -257,92 +296,35 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           onNewConversation(newConversation);
         }
 
-        // Load messages after creation
-        const history = await chatService.getChatHistory(newConvId);
-        console.log("✅ Loaded conversation history:", history.length);
-        setMessages(history);
-
-        // Navigate to new conversation URL
-        navigate(`/user/chat/${newConvId}`, { replace: true });
+        // ✅ QUAN TRỌNG: Truyền state chứa thông tin file qua route mới
+        navigate(`/user/chat/${newConvId}`, {
+          replace: true,
+          state: {
+            // Backup attachment data để useEffect có thể khôi phục
+            tempAttachment: file
+              ? {
+                  fileName: file.name,
+                  fileSize: file.size,
+                  fileType: file.type,
+                }
+              : null,
+            tempDocs: selectedDocuments.length > 0 ? selectedDocuments : null,
+          },
+        });
       } catch (error) {
         console.error("❌ Create conversation error:", error);
         alert("Không thể tạo cuộc trò chuyện mới.");
+        setMessages([]);
       } finally {
         setIsReplying(false);
       }
     }
   };
 
-  // Convert temp conversation to real
-  const handleConvertTempConversation = async (
-    messageText: string,
-    file?: File
-  ) => {
-    try {
-      console.log("🔄 Converting temp conversation to real conversation");
+  // ============================================================
+  // HANDLE SEND MESSAGE WITH FILE
+  // ============================================================
 
-      // Upload file if exists
-      let uploadedDocId: number | null = null;
-      if (file) {
-        try {
-          console.log("📂 Uploading file:", file.name);
-          const uploadedDoc = await documentService.uploadDocument(
-            file,
-            file.name
-          );
-          uploadedDocId = Number(uploadedDoc.id);
-          console.log("✅ File uploaded, ID:", uploadedDocId);
-        } catch (error) {
-          console.error("❌ Upload error:", error);
-          alert("Lỗi tải file lên. Vui lòng thử lại.");
-          return;
-        }
-      }
-
-      // Collect document IDs
-      const docIds = selectedDocuments
-        .map((d) => parseInt(d.id, 10))
-        .filter((id) => !isNaN(id));
-
-      if (uploadedDocId !== null) {
-        docIds.push(uploadedDocId);
-      }
-
-      console.log("📚 Document IDs for new conversation:", docIds);
-
-      // Create real conversation with backend
-      const newConversation = await chatService.createNewConversation({
-        title: messageText.substring(0, 50) || "Cuộc trò chuyện mới",
-        initialMessage: messageText,
-        documentIds: docIds,
-      });
-
-      const newConvId = newConversation.id;
-      console.log("✅ Real conversation created:", newConvId);
-
-      // Notify parent
-      if (onCreateConversationFromHeroChat) {
-        onCreateConversationFromHeroChat(
-          newConvId,
-          messageText,
-          docIds.map(String)
-        );
-      }
-
-      // Load messages
-      const history = await chatService.getChatHistory(newConvId);
-      console.log("✅ Loaded conversation history:", history.length);
-      setMessages(history);
-
-      // Navigate to new conversation URL
-      navigate(`/user/chat/${newConvId}`, { replace: true });
-    } catch (error) {
-      console.error("❌ Convert temp conversation error:", error);
-      alert("Lỗi tạo cuộc trò chuyện.");
-    }
-  };
-
-  // Send message with file in existing conversation
   const handleSendMessageWithFile = async (
     messageText: string,
     file: File,
@@ -359,17 +341,17 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         fileSize: file.size,
         fileType: file.type,
       },
+      attachedDocuments:
+        selectedDocuments.length > 0 ? selectedDocuments : undefined,
     };
 
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      // Upload file
       console.log("📂 Uploading file in conversation:", file.name);
       const uploadedDoc = await documentService.uploadDocument(file, file.name);
       const uploadedDocId = Number(uploadedDoc.id);
 
-      // Collect document IDs
       const docIds = selectedDocuments
         .map((d) => parseInt(d.id, 10))
         .filter((id) => !isNaN(id));
@@ -380,7 +362,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
       console.log("📤 Sending query with docs:", docIds);
 
-      // Send query with conversation_id
       const response = await queryApiService.sendQuery(
         messageText || `Phân tích file: ${file.name}`,
         docIds,
@@ -388,14 +369,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         conversationId
       );
 
-      // Update user message status
       setMessages((prev) =>
         prev.map((m) =>
           m.id === userMessage.id ? { ...m, status: "sent" } : m
         )
       );
 
-      // Add AI response
       const aiMessage: ChatMessage = {
         id: `msg-ai-${response.query_id}`,
         text: response.answer,
@@ -407,13 +386,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     } catch (error: any) {
       console.error("❌ Send file error:", error);
 
-      // Handle specific errors
       if (
         error.status === 404 &&
         error.detail?.includes("Conversation not found")
       ) {
         alert("Cuộc trò chuyện không tồn tại. Đang tạo cuộc trò chuyện mới...");
-        // Create new conversation instead
         await handleCreateNewConversation(messageText, file);
       } else {
         alert("Lỗi gửi file.");
@@ -429,7 +406,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     }
   };
 
-  // Send text-only message in existing conversation
+  // ============================================================
+  // HANDLE SEND MESSAGE TEXT ONLY
+  // ============================================================
+
   const handleSendMessageTextOnly = async (
     messageText: string,
     conversationId?: number
@@ -440,19 +420,19 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       sender: "user",
       timestamp: new Date().toISOString(),
       status: "sent",
+      attachedDocuments:
+        selectedDocuments.length > 0 ? selectedDocuments : undefined,
     };
 
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      // Collect document IDs
       const docIds = selectedDocuments
         .map((d) => parseInt(d.id, 10))
         .filter((id) => !isNaN(id));
 
       console.log("📤 Sending text query with docs:", docIds);
 
-      // Send query
       const response = await queryApiService.sendQuery(
         messageText,
         docIds,
@@ -460,7 +440,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         conversationId
       );
 
-      // Add AI response
       const aiMessage: ChatMessage = {
         id: `msg-ai-${response.query_id}`,
         text: response.answer,
@@ -472,13 +451,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     } catch (error: any) {
       console.error("❌ Send message error:", error);
 
-      // Handle specific errors
       if (
         error.status === 404 &&
         error.detail?.includes("Conversation not found")
       ) {
         alert("Cuộc trò chuyện không tồn tại. Đang tạo cuộc trò chuyện mới...");
-        // Remove error message and create new conversation
         setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
         await handleCreateNewConversation(messageText);
       } else {
