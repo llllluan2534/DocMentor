@@ -1,5 +1,4 @@
 from sqlalchemy.orm import Session
-import PyPDF2
 from docx import Document as DocxDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any
@@ -122,21 +121,21 @@ class DocumentProcessor:
             raise
     
     def extract_pdf(self, file_path: str) -> str:
-        """Extract text from PDF file"""
+        """Extract text from PDF file using pdfplumber"""
+        import pdfplumber
         text = ""
         try:
-            logger.info(f"📖 Opening PDF: {file_path}")
-            with open(file_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                num_pages = len(pdf_reader.pages)
+            logger.info(f"📖 Opening PDF with pdfplumber: {file_path}")
+            with pdfplumber.open(file_path) as pdf:
+                num_pages = len(pdf.pages)
                 logger.info(f"📄 PDF has {num_pages} pages")
                 
-                for page_num in range(num_pages):
-                    page = pdf_reader.pages[page_num]
+                for i, page in enumerate(pdf.pages):
+                    # Extract text bảo toàn layout
                     page_text = page.extract_text()
                     if page_text:
-                        text += f"\n[Page {page_num + 1}]\n{page_text}"
-                
+                        text += f"\n[Page {i + 1}]\n{page_text}"
+            
             logger.info(f"✅ PDF extraction complete: {len(text)} characters")
             return text.strip()
         except Exception as e:

@@ -153,6 +153,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
         <button
           onClick={onNewConversation}
           className="w-full bg-gradient-to-r from-primary to-secondary text-white px-4 py-3 rounded-xl font-medium shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:scale-[1.02] transition-all duration-300 flex items-center justify-center gap-2 group"
+          title="Cuộc trò chuyện sẽ được lưu sau khi bạn gửi tin nhắn đầu tiên" // ✅ Tooltip
         >
           <div className="p-1.5 rounded-lg bg-white/20 group-hover:bg-white/30 transition-colors">
             <FiPlus className="w-5 h-5" />
