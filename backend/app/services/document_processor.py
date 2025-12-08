@@ -1,5 +1,4 @@
 from sqlalchemy.orm import Session
-import PyPDF2
 from docx import Document as DocxDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any
