@@ -46,8 +46,7 @@ langchain-text-splitters==0.3.11
 
 # ===================================
 # FILE PROCESSING & EXTRACTION
-# ===================================
-//PyPDF2==3.0.1    
+# ===================================   
 pdfplumber      # For PDF extraction (light ~5MB)
 python-docx==1.2.0      # For DOCX extraction (light ~3MB)
 pillow==11.3.0          # Image support (if needed)
