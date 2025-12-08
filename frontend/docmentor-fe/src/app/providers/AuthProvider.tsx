@@ -55,7 +55,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setUser(currentUser);
           setIsAuthenticated(true);
         } else {
-          console.log("❌ No valid session found");
           setIsAuthenticated(false);
           setUser(null);
         }

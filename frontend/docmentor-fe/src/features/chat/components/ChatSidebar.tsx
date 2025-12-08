@@ -120,7 +120,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   };
 
   // Check if conversation is temporary
-  const isTempConversation = (id: string) => false;
+  const isTempConversation = (id: string) => id.startsWith("temp-");
 
   // Get conversation icon
   const getConversationIcon = () => (
@@ -128,7 +128,12 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   );
 
   // Get conversation status color
-  const getStatusColor = () => "from-primary/20 to-secondary/20 text-primary";
+  const getStatusColor = (id: string) => {
+    if (id.startsWith("temp-")) {
+      return "from-yellow-500/20 to-yellow-600/20 text-yellow-400"; // ✅ Yellow for temp
+    }
+    return "from-primary/20 to-secondary/20 text-primary";
+  };
 
   return (
     <div className="flex flex-col h-full border-r bg-gradient-to-b from-accent/80 to-accent/60 backdrop-blur-sm border-primary/10">
@@ -264,7 +269,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                 <div className="flex items-start gap-3">
                   {/* Icon */}
                   <div
-                    className={`flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br ${getStatusColor().split(" ")[0]} ${getStatusColor().split(" ")[1]} flex items-center justify-center ${isTemp ? "animate-pulse" : ""}`}
+                    className={`flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br ${getStatusColor(conv.id).split(" ")[0]} ${getStatusColor(conv.id).split(" ")[1]} flex items-center justify-center ${isTemp ? "animate-pulse" : ""}`}
                   >
                     {getConversationIcon()}
                   </div>
@@ -313,7 +318,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                           </h3>
                           {isTemp && (
                             <span className="text-xs text-yellow-400 bg-yellow-500/10 px-1.5 py-0.5 rounded">
-                              Tạm thời
+                              Chưa lưu
                             </span>
                           )}
                         </div>

@@ -171,32 +171,24 @@ const ChatPage: React.FC = () => {
 
   const handleNewConversation = async () => {
     try {
-      console.log("🆕 Creating TEMP conversation (no backend call)");
+      console.log("🆕 Creating temp conversation");
 
-      // ✅ FIX: Tạo conversation TẠM, KHÔNG gọi backend
       const tempConv: Conversation = {
         id: `temp-new-${Date.now()}`,
         title: "Cuộc trò chuyện mới",
         createdAt: new Date().toISOString(),
       };
 
-      // ✅ Thêm vào đầu danh sách (loại bỏ temp conversations khác)
       setConversations((prev) => {
         const filtered = prev.filter((c) => !c.id.startsWith("temp-"));
         return [tempConv, ...filtered];
       });
 
       setActiveConversationId(tempConv.id);
-
-      // ✅ Clear selected documents
       setSelectedDocuments([]);
-
-      // ✅ Chuyển hướng
       navigate(`/user/chat/${tempConv.id}`, { replace: true });
 
-      console.log(
-        "✅ Temp conversation created, waiting for user's first message"
-      );
+      console.log("✅ Temp conversation created, waiting for first message");
     } catch (error) {
       console.error("❌ Create temp conversation error:", error);
       alert("Không thể tạo cuộc trò chuyện mới.");
