@@ -52,6 +52,51 @@ class GeminiService:
             logger.error(f"❌ Error extracting text: {str(e)}")
             return ""
     
+    # ============================================================================
+    # 🔧 NEW: Helper function - Ensure sources section exists
+    # ============================================================================
+    def _ensure_sources_section(self, response_text: str, context: str) -> str:
+        """
+        Safety net: Tự động thêm section nguồn nếu AI quên
+        
+        Args:
+            response_text: Câu trả lời từ AI
+            context: Context string chứa thông tin nguồn
+            
+        Returns:
+            Response có đảm bảo section nguồn
+        """
+        # Kiểm tra xem đã có section nguồn chưa
+        if "📚 NGUỒN THAM KHẢO" in response_text or "NGUỒN THAM KHẢO" in response_text:
+            return response_text
+        
+        logger.warning("⚠️ AI forgot sources section - adding automatically")
+        
+        # Nếu chưa có → Tự động thêm vào
+        sources_section = "\n\n" + "━" * 80 + "\n"
+        sources_section += "📚 NGUỒN THAM KHẢO\n"
+        sources_section += "━" * 80 + "\n\n"
+        
+        # Extract sources từ context string
+        # Format: [Nguồn 1: Tên file, Trang X | Độ liên quan: Y%]
+        source_pattern = r'\[Nguồn (\d+): ([^,]+)(?:, (Page \d+))?'
+        matches = re.findall(source_pattern, context)
+        
+        if matches:
+            for idx, title, page in matches:
+                sources_section += f"{idx}  **{title.strip()}**"
+                if page:
+                    sources_section += f", {page}"
+                sources_section += "\n"
+        else:
+            # Fallback: Nếu không parse được, thêm thông báo chung
+            sources_section += "1  **Tài liệu đã chọn**\n"
+        
+        return response_text + sources_section
+    
+    # ============================================================================
+    # 🔧 MODIFIED: generate_answer - Added safety net
+    # ============================================================================
     async def generate_answer(
         self, 
         query: str, 
@@ -99,6 +144,8 @@ class GeminiService:
                     if candidate.content and candidate.content.parts:
                         partial = candidate.content.parts[0].text.strip()
                         if partial:
+                            # ✅ Apply safety net to partial response
+                            partial = self._ensure_sources_section(partial, context)
                             return partial + "\n\n[Câu trả lời bị cắt ngắn do quá dài]"
                     return "Câu trả lời quá dài. Vui lòng đặt câu hỏi cụ thể hơn."
                 
@@ -108,6 +155,10 @@ class GeminiService:
                 
                 elif finish_reason == 1:  # STOP (success)
                     answer = response.text.strip()
+                    
+                    # ✅ SAFETY NET: Ensure sources section exists
+                    answer = self._ensure_sources_section(answer, context)
+                    
                     logger.info(f"✅ Answer generated: {len(answer)} chars")
                     return answer
                 
