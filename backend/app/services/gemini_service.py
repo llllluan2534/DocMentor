@@ -12,7 +12,7 @@ class GeminiService:
     
     def __init__(self):
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        self.chat_model = genai.GenerativeModel('models/gemini-1.5-flash-002')
+        self.chat_model = genai.GenerativeModel('models/gemini-1.5-flash')
         
         # Configure safety settings (less strict for education)
         self.safety_settings = {
@@ -112,7 +112,7 @@ class GeminiService:
             if system_instruction:
                 # Tạo model với system instruction
                 model = genai.GenerativeModel(
-                    'models/gemini-1.5-flash-002',
+                    'models/gemini-1.5-flash',
                     system_instruction=system_instruction
                 )
             else:
