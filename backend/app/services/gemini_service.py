@@ -112,7 +112,7 @@ class GeminiService:
             if system_instruction:
                 # Tạo model với system instruction
                 model = genai.GenerativeModel(
-                    'models/gemini-2.5-flash',
+                    'models/gemini-1.5-flash-002',
                     system_instruction=system_instruction
                 )
             else:
@@ -125,7 +125,7 @@ class GeminiService:
                 question=query
             )
             
-            logger.info("🤖 Generating answer with Gemini 2.5 Flash...")
+            logger.info("🤖 Generating answer with Gemini 1.5 Flash...")
             
             response = model.generate_content(
                 prompt,
