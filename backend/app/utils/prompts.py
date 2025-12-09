@@ -68,6 +68,11 @@ FORMAT TRÍCH DẪN:
 
 (Dùng đúng số tương ứng với [1], [2], [3] trong nội dung)
 
+⚠️ **QUAN TRỌNG - KHÔNG sao chép format context**:
+- Context có format: [Nguồn 1: Tên file, Page X | Độ liên quan: Y%]
+- KHÔNG BAO GIỜ copy phần "| Độ liên quan: Y%]" vào câu trả lời
+- CHỈ dùng số [1], [2], [3] trong nội dung
+- Section nguồn CHỈ ghi: "1  **Tên file**, Page X" (KHÔNG có "Độ liên quan")
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎨 HƯỚNG DẪN FORMAT CÂU TRẢ LỜI
@@ -569,7 +574,7 @@ def format_context(chunks, doc_map):
         doc_map: Dictionary mapping document IDs to document objects
         
     Returns:
-        Formatted context string with source markers
+        Formatted context string with clean source markers
     """
     context_parts = []
     
@@ -578,14 +583,12 @@ def format_context(chunks, doc_map):
         doc = doc_map.get(doc_id)
         doc_title = doc.title if doc else "Unknown Document"
         text = chunk['text']
-        score = chunk.get('score', 0)
         page = chunk.get('page_number', 0)
         
-        # Format source marker
         source_marker = f"[Nguồn {idx}: {doc_title}"
         if page and page > 0:
-            source_marker += f", Trang {page}"
-        source_marker += f" | Độ liên quan: {score:.1%}]"
+            source_marker += f", Page {page}"
+        source_marker += "]"  # ← Bỏ phần "| Độ liên quan"
         
         # Format chunk with clear structure
         context_parts.append(

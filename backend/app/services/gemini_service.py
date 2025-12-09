@@ -77,19 +77,22 @@ class GeminiService:
         sources_section += "📚 NGUỒN THAM KHẢO\n"
         sources_section += "━" * 80 + "\n\n"
         
-        # Extract sources từ context string
-        # Format: [Nguồn 1: Tên file, Trang X | Độ liên quan: Y%]
-        source_pattern = r'\[Nguồn (\d+): ([^,]+)(?:, (Page \d+))?'
+        # Format: [Nguồn 1: Tên file, Page X]
+        source_pattern = r'\[Nguồn (\d+): ([^\]]+?)(, Page (\d+))?\]'
         matches = re.findall(source_pattern, context)
         
         if matches:
-            for idx, title, page in matches:
-                sources_section += f"{idx}  **{title.strip()}**"
-                if page:
-                    sources_section += f", {page}"
-                sources_section += "\n"
+            seen = set()  # Tránh trùng lặp
+            for idx, title, _, page in matches:
+                key = f"{idx}_{title}"
+                if key not in seen:
+                    seen.add(key)
+                    sources_section += f"{idx}  **{title.strip()}**"
+                    if page:
+                        sources_section += f", Page {page}"
+                    sources_section += "\n"
         else:
-            # Fallback: Nếu không parse được, thêm thông báo chung
+            # Fallback nếu không parse được
             sources_section += "1  **Tài liệu đã chọn**\n"
         
         return response_text + sources_section
@@ -130,7 +133,7 @@ class GeminiService:
                     'temperature': 0.3,
                     'top_p': 0.8,
                     'top_k': 40,
-                    'max_output_tokens': 2048,
+                    'max_output_tokens': 4096,
                 }
             )
             
