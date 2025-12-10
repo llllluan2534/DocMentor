@@ -12,7 +12,7 @@ class GeminiService:
     
     def __init__(self):
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        self.chat_model = genai.GenerativeModel('gemini-2.0-flash')
+        self.chat_model = genai.GenerativeModel('models/gemini-2.5-flash')
         
         # Configure safety settings (less strict for education)
         self.safety_settings = {
@@ -22,7 +22,7 @@ class GeminiService:
             'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE',
         }
         
-        logger.info("✅ Gemini 2.0 Flash initialized")
+        logger.info("✅ Gemini 2.5 Flash initialized")
     
     def _safe_get_text(self, response) -> str:
         """Safely extract text from Gemini response"""
@@ -112,7 +112,7 @@ class GeminiService:
             if system_instruction:
                 # Tạo model với system instruction
                 model = genai.GenerativeModel(
-                    'gemini-2.0-flash',
+                    'models/gemini-2.5-flash',
                     system_instruction=system_instruction
                 )
             else:
