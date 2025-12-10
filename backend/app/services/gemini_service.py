@@ -8,11 +8,11 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 class GeminiService:
-    """Service for Google Gemini AI - using Gemini 1.5 Flash (Free)"""
+    """Service for Google Gemini AI - using Gemini 2.0 Flash (Free)"""
     
     def __init__(self):
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        self.chat_model = genai.GenerativeModel('gemini-1.5-flash')
+        self.chat_model = genai.GenerativeModel('gemini-2.0-flash')
         
         # Configure safety settings (less strict for education)
         self.safety_settings = {
@@ -22,7 +22,7 @@ class GeminiService:
             'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE',
         }
         
-        logger.info("✅ Gemini 1.5 Flash initialized")
+        logger.info("✅ Gemini 2.0 Flash initialized")
     
     def _safe_get_text(self, response) -> str:
         """Safely extract text from Gemini response"""
@@ -112,7 +112,7 @@ class GeminiService:
             if system_instruction:
                 # Tạo model với system instruction
                 model = genai.GenerativeModel(
-                    'gemini-1.5-flash',
+                    'gemini-2.0-flash',
                     system_instruction=system_instruction
                 )
             else:
