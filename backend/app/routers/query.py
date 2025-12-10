@@ -56,6 +56,7 @@ async def query_documents(
             "processing_time_ms": result["processing_time_ms"],
             "created_at": datetime.utcnow()
         }
+    
 
     # Nếu OK → trả về đủ thông tin
     return {

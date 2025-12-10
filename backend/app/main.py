@@ -18,10 +18,19 @@ app = FastAPI(
 )
 
 allowed_origins = [
-    "http://localhost:3000",
     "http://localhost:5173",
-    "https://docmentor-api.onrender.com",  # URL Render của bạn
+    "http://127.0.0.1:5173",
+    "https://docmentor-fe.vercel.app",  # giả sử FE deploy
+    "https://docmentor-api.onrender.com",  # backend url cũng nên nếu FE và BE cùng domain
 ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Thêm FRONTEND_URL từ env nếu có
 if os.getenv("FRONTEND_URL"):
