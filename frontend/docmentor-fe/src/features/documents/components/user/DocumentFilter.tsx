@@ -25,11 +25,18 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
 
+  const closeAllDropdowns = () => {
+    setIsSortDropdownOpen(false);
+    setIsTypeDropdownOpen(false);
+    setIsStatusDropdownOpen(false);
+    setIsDateDropdownOpen(false);
+  };
+
   const handleSortChange = (sortBy: Filters["sortBy"]) => {
     const newFilters = { ...filters, sortBy };
     setFilters(newFilters);
     onFilterChange(newFilters);
-    setIsSortDropdownOpen(false);
+    closeAllDropdowns();
   };
 
   const handleTypeChange = (type: string) => {
@@ -41,7 +48,7 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
       filters: newFilters,
     });
     onFilterChange(newFilters);
-    setIsTypeDropdownOpen(false);
+    closeAllDropdowns();
   };
 
   const handleStatusChange = (status: string) => {
@@ -53,7 +60,7 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
       filters: newFilters,
     });
     onFilterChange(newFilters);
-    setIsStatusDropdownOpen(false);
+    closeAllDropdowns();
   };
 
   const handleDateChange = (dateRange: Filters["dateRange"]) => {
@@ -64,7 +71,7 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
       filters: newFilters,
     });
     onFilterChange(newFilters);
-    setIsDateDropdownOpen(false);
+    closeAllDropdowns();
   };
 
   const getSortLabel = () => {
@@ -162,7 +169,10 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
         {/* Filter by Type */}
         <div className="relative flex-1 sm:flex-none min-w-[120px]">
           <button
-            onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
+            onClick={() => {
+              closeAllDropdowns();
+              setIsTypeDropdownOpen(!isTypeDropdownOpen);
+            }}
             className="w-full px-3 py-2.5 rounded-lg bg-accent border border-primary/30 text-white hover:border-primary/50 transition-all flex items-center justify-between gap-2 font-medium hover:bg-accent/80 text-sm"
           >
             <span className="truncate">{getTypeLabel()}</span>
@@ -209,7 +219,10 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
         {/* Filter by Status */}
         <div className="relative flex-1 sm:flex-none min-w-[140px]">
           <button
-            onClick={() => setIsStatusDropdownOpen(!isStatusDropdownOpen)}
+            onClick={() => {
+              closeAllDropdowns();
+              setIsStatusDropdownOpen(!isStatusDropdownOpen);
+            }}
             className="w-full px-3 py-2.5 rounded-lg bg-accent border border-primary/30 text-white hover:border-primary/50 transition-all flex items-center justify-between gap-2 font-medium hover:bg-accent/80 text-sm"
           >
             <span className="truncate">{getStatusLabel()}</span>
@@ -256,7 +269,10 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
         {/* Filter by Date */}
         <div className="relative flex-1 sm:flex-none min-w-[140px]">
           <button
-            onClick={() => setIsDateDropdownOpen(!isDateDropdownOpen)}
+            onClick={() => {
+              closeAllDropdowns();
+              setIsDateDropdownOpen(!isDateDropdownOpen);
+            }}
             className="w-full px-3 py-2.5 rounded-lg bg-accent border border-primary/30 text-white hover:border-primary/50 transition-all flex items-center justify-between gap-2 font-medium hover:bg-accent/80 text-sm"
           >
             <span className="truncate">{getDateLabel()}</span>
@@ -301,7 +317,10 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
         {/* Sort Dropdown */}
         <div className="relative flex-1 sm:flex-none min-w-[120px]">
           <button
-            onClick={() => setIsSortDropdownOpen(!isSortDropdownOpen)}
+            onClick={() => {
+              closeAllDropdowns();
+              setIsSortDropdownOpen(!isSortDropdownOpen);
+            }}
             className="w-full px-3 py-2.5 rounded-lg bg-accent border border-primary/30 text-white hover:border-primary/50 transition-all flex items-center justify-between gap-2 font-medium hover:bg-accent/80 text-sm"
           >
             <span className="truncate">{getSortLabel()}</span>
@@ -346,6 +365,7 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
         {/* Reset Button */}
         <button
           onClick={() => {
+            closeAllDropdowns();
             const resetFilters: Filters = {
               sortBy: "date_desc",
               dateRange: undefined,
@@ -363,3 +383,5 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
     </div>
   );
 };
+
+export default DocumentFilter;

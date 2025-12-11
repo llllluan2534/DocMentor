@@ -1,3 +1,4 @@
+// src/services/document/documentService.ts
 import { documentApiService } from "@/services/api/documentApiService";
 import { Document, Folder } from "@/types/document.types";
 
@@ -128,12 +129,23 @@ export const documentService = {
     };
   },
 
+  /**
+   * 📥 Get document content/file
+   * ✅ Fixed: Use documentApiService.downloadDocument which handles file_path
+   */
   getDocumentContent: async (id: string): Promise<Blob> => {
     if (USE_MOCK_MODE) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       return new Blob(["Mock content for testing"], { type: "text/plain" });
     }
-    return documentApiService.downloadDocument(id);
+
+    try {
+      // Use the API service which handles file_path properly
+      return await documentApiService.downloadDocument(id);
+    } catch (error) {
+      console.error("❌ getDocumentContent error:", error);
+      throw error;
+    }
   },
 
   renameDocument: async (

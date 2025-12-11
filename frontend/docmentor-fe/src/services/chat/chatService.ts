@@ -4,7 +4,8 @@ import { ChatMessage, Conversation } from "@/types/chat.types";
 import { queryApiService } from "@/services/api/queryApiService";
 import axios from "axios";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 // ============================================================
 // AXIOS INSTANCE FOR CONVERSATIONS
@@ -16,7 +17,8 @@ const conversationApi = axios.create({
 });
 
 conversationApi.interceptors.request.use((config) => {
-  const token = localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token");
+  const token =
+    localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -32,12 +34,20 @@ const convertToChatMessages = (queries: any[]): ChatMessage[] => {
 
   queries.forEach((query) => {
     // User message
+    // 1. ✅ KHAI BÁO BIẾN Ở ĐÂY (Map dữ liệu từ backend)
+    // Giả sử backend trả về field 'documents' là mảng các file
+    const attachedDocs =
+      query.documents?.map((doc: any) => ({
+        id: doc.id.toString(),
+        title: doc.title,
+      })) || [];
     messages.push({
       id: `msg-user-${query.id}`,
       text: query.query_text,
       sender: "user",
       timestamp: query.created_at,
       status: "sent",
+      attachedDocuments: attachedDocs.length > 0 ? attachedDocs : undefined,
     });
 
     // AI message
@@ -70,6 +80,13 @@ export const chatService = {
         id: conv.id.toString(),
         title: conv.title,
         createdAt: conv.created_at,
+        isPinned: conv.is_pinned || false, // ✅ Lấy isPinned từ backend
+        documents:
+          conv.documents?.map((doc: any) => ({
+            id: doc.id,
+            title: doc.title,
+          })) || [],
+        documentCount: conv.document_count || conv.documents?.length || 0,
       }));
     } catch (error) {
       console.error("❌ Get conversations error:", error);
@@ -122,7 +139,7 @@ export const chatService = {
         payload.initialMessage,
         numericDocIds,
         5,
-        conversationId  // ← Link to conversation
+        conversationId // ← Link to conversation
       );
 
       console.log("✅ Sent initial query to conversation");
@@ -131,6 +148,7 @@ export const chatService = {
         id: conversationId.toString(),
         title: response.data.title,
         createdAt: response.data.created_at,
+        isPinned: false, // ✅ New conversations are not pinned by default
       };
     } catch (error) {
       console.error("❌ Create conversation error:", error);
@@ -146,7 +164,7 @@ export const chatService = {
   ): Promise<any> => {
     try {
       const convId = parseInt(conversationId, 10);
-      
+
       if (isNaN(convId)) {
         throw new Error("Invalid conversation ID");
       }
@@ -155,7 +173,7 @@ export const chatService = {
         messageText,
         documentIds,
         5,
-        convId  // ← Pass conversation_id
+        convId // ← Pass conversation_id
       );
 
       return response;
@@ -166,7 +184,10 @@ export const chatService = {
   },
 
   // ✅ Rename Conversation
-  renameConversation: async (id: string, newTitle: string): Promise<Conversation> => {
+  renameConversation: async (
+    id: string,
+    newTitle: string
+  ): Promise<Conversation> => {
     try {
       const response = await conversationApi.put(`/${id}`, {
         title: newTitle,
@@ -176,9 +197,37 @@ export const chatService = {
         id: response.data.id.toString(),
         title: response.data.title,
         createdAt: response.data.created_at,
+        isPinned: response.data.is_pinned || false,
       };
     } catch (error) {
       console.error("❌ Rename conversation error:", error);
+      throw error;
+    }
+  },
+
+  // ✅ UPDATE CONVERSATION (NEW - for pin/unpin)
+  updateConversation: async (
+    conversationId: string,
+    updates: {
+      title?: string;
+      isPinned?: boolean;
+    }
+  ): Promise<Conversation> => {
+    try {
+      console.log("📝 Updating conversation:", conversationId, updates);
+
+      const response = await conversationApi.put(`/${conversationId}`, updates);
+
+      console.log("✅ Conversation updated:", response.data);
+
+      return {
+        id: response.data.id.toString(),
+        title: response.data.title,
+        createdAt: response.data.created_at,
+        isPinned: response.data.is_pinned || false, // ✅ Lấy từ response
+      };
+    } catch (error) {
+      console.error("❌ Update conversation error:", error);
       throw error;
     }
   },

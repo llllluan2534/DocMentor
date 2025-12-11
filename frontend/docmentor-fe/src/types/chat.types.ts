@@ -37,6 +37,13 @@ export interface Conversation {
   title: string;
   createdAt: string;
   updatedAt?: string;
+  isPinned?: boolean;
+  // 👇 THÊM MỚI: Thông tin tài liệu
+  documents?: {
+    id: string | number;
+    title: string;
+  }[];
+  documentCount?: number;
 }
 
 // ✨ Type alias for backward compatibility

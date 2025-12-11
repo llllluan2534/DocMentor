@@ -306,7 +306,47 @@ const ChatPage: React.FC = () => {
   const handleRemoveDocument = (docId: string) => {
     setSelectedDocuments((prev) => prev.filter((d) => d.id !== docId));
   };
+  /**
+   * ✅ PIN/UNPIN CONVERSATION HANDLER
+   * Xử lý ghim/bỏ ghim cuộc trò chuyện
+   */
+  const handlePinConversation = async (id: string, isPinned: boolean) => {
+    try {
+      console.log(`📌 ${isPinned ? "Pinning" : "Unpinning"} conversation:`, id);
 
+      // ✅ Cập nhật local state ngay lập tức (optimistic update)
+      setConversations((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, isPinned } : c))
+      );
+
+      // ✅ Nếu là temp conversation, chỉ cập nhật local (không call API)
+      if (id.startsWith("temp-")) {
+        console.log("📝 Temp conversation, skipping API call");
+        return;
+      }
+
+      // ✅ Call API để lưu pin state trên server
+      try {
+        await chatService.updateConversation(id, { isPinned });
+        console.log(
+          `✅ Conversation ${isPinned ? "pinned" : "unpinned"} successfully`
+        );
+      } catch (error) {
+        console.error("❌ Failed to update pin state:", error);
+
+        // ✅ Revert local state nếu API fail
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, isPinned: !isPinned } : c))
+        );
+
+        alert(
+          `Không thể ${isPinned ? "ghim" : "bỏ ghim"} cuộc trò chuyện. Vui lòng thử lại.`
+        );
+      }
+    } catch (error) {
+      console.error("❌ Pin conversation error:", error);
+    }
+  };
   // ============================================================
   // RENDER
   // ============================================================
@@ -332,6 +372,7 @@ const ChatPage: React.FC = () => {
             onNewConversation={handleNewConversation}
             onDeleteConversation={handleDeleteConversation}
             onRenameConversation={handleRenameConversation}
+            onPinConversation={handlePinConversation}
           />
         </div>
       )}
