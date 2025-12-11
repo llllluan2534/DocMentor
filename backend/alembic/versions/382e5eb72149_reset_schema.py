@@ -54,6 +54,19 @@ def upgrade() -> None:
         )
         op.create_index(op.f('ix_documents_id'), 'documents', ['id'], unique=False)
         op.create_index(op.f('ix_documents_title'), 'documents', ['title'], unique=False)
+        
+    # --- CONVERSATIONS ---
+    if 'conversations' not in inspector.get_table_names():
+        op.create_table(
+            'conversations',
+            sa.Column('id', sa.Integer(), primary_key=True, nullable=False),
+            sa.Column('user_id', sa.Integer(), sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False),
+            sa.Column('title', sa.String(), nullable=False),
+            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.Column('updated_at', sa.DateTime(), nullable=True),
+        )
+        op.create_index(op.f('ix_conversations_id'), 'conversations', ['id'], unique=False)
+
 
     # --- QUERIES (CẬP NHẬT: THÊM conversation_id) ---
     if 'queries' not in inspector.get_table_names():
