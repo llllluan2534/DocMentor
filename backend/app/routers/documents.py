@@ -89,23 +89,93 @@ async def upload_document(
 @router.get("/", response_model=DocumentList)
 def get_documents(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
-    search: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None, description="Fulltext-like search on title"),
+    file_type: Optional[List[str]] = Query(None, description="Filter by file types, repeatable"),
+    processed: Optional[bool] = Query(None, description="Filter by processed status (true/false)"),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    size_min: Optional[int] = Query(None, ge=0, description="Minimum file size in bytes"),
+    size_max: Optional[int] = Query(None, ge=0, description="Maximum file size in bytes"),
+    sort_by: Optional[str] = Query("created_at", regex="^(created_at|updated_at|file_size|title)$"),
+    order: Optional[str] = Query("desc", regex="^(asc|desc)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all documents for current user"""
+    """
+    Get documents for current user with filters, sorting and pagination.
+
+    Filters:
+      - file_type (repeatable): pdf, docx, txt, ...
+      - processed: true/false
+      - date_from/date_to: YYYY-MM-DD (inclusive)
+      - size_min/size_max: bytes
+    """
+    # Normalize/validate dates
+    from datetime import datetime, time
+    start_dt = None
+    end_dt = None
+    if date_from:
+        try:
+            d = datetime.strptime(date_from, "%Y-%m-%d")
+            start_dt = datetime.combine(d.date(), time.min)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date_from must be YYYY-MM-DD")
+    if date_to:
+        try:
+            d = datetime.strptime(date_to, "%Y-%m-%d")
+            end_dt = datetime.combine(d.date(), time.max)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date_to must be YYYY-MM-DD")
+
+    # Build deterministic cache key from params
+    # Order of keys must be stable so same query maps to same cache entry
+    cache_key = (
+        f"user:{current_user.id}:docs:"
+        f"skip={skip}:limit={limit}:search={search or ''}:"
+        f"ft={'|'.join(file_type) if file_type else ''}:proc={processed}:"
+        f"df={date_from or ''}:dt={date_to or ''}:smin={size_min or ''}:smax={size_max or ''}:"
+        f"sort={sort_by}:{order}"
+    )
+
     # Try cache first
-    cache_key = f"user_{current_user.id}_documents"
     cached = cache.get(cache_key)
     if cached:
         return cached
 
-    documents = DocumentService.get_user_documents(db, current_user, skip, limit, search)
-    total = db.query(Document).filter(Document.user_id == current_user.id).count()
+    # Delegate to service which builds SQLAlchemy query
+    documents = DocumentService.get_user_documents(
+        db=db,
+        user=current_user,
+        skip=skip,
+        limit=limit,
+        search=search,
+        file_types=file_type,
+        processed=processed,
+        date_from=start_dt,
+        date_to=end_dt,
+        size_min=size_min,
+        size_max=size_max,
+        sort_by=sort_by,
+        order=order
+    )
+
+    # Get total count with same filters (fast COUNT)
+    total = DocumentService.count_user_documents(
+        db=db,
+        user=current_user,
+        search=search,
+        file_types=file_type,
+        processed=processed,
+        date_from=start_dt,
+        date_to=end_dt,
+        size_min=size_min,
+        size_max=size_max
+    )
+
     result = DocumentList(total=total, documents=documents)
 
-    # Store in cache for 2 minutes
+    # Cache result (short TTL)
     try:
         cache.set(cache_key, result, ttl_seconds=120)
     except Exception:
