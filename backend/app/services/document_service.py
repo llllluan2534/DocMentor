@@ -5,6 +5,8 @@ from typing import List, Dict, Optional
 import os
 import shutil
 import logging
+from sqlalchemy import desc, asc, and_
+from datetime import datetime
 
 from ..models.document import Document
 from ..models.user import User
@@ -102,15 +104,60 @@ class DocumentService:
         user: User,
         skip: int = 0,
         limit: int = 100,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        file_types: Optional[List[str]] = None,
+        processed: Optional[bool] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        size_min: Optional[int] = None,
+        size_max: Optional[int] = None,
+        sort_by: str = "created_at",
+        order: str = "desc"
     ) -> List[Document]:
-        """Get all documents for a user with pagination"""
+        """Get documents for a user applying filters, sorting and pagination."""
         query = db.query(Document).filter(Document.user_id == user.id)
-        
+
+        # Filters
+        if file_types:
+            # normalize lower-case to avoid mismatch
+            lower_types = [t.lower() for t in file_types]
+            query = query.filter(Document.file_type.in_(lower_types))
+
+        if processed is True:
+            query = query.filter(Document.processed.is_(True))
+        elif processed is False:
+            query = query.filter(Document.processed.is_(False))
+
+        if date_from:
+            query = query.filter(Document.created_at >= date_from)
+        if date_to:
+            query = query.filter(Document.created_at <= date_to)
+
+        if size_min is not None:
+            query = query.filter(Document.file_size >= size_min)
+        if size_max is not None:
+            query = query.filter(Document.file_size <= size_max)
+
         if search:
-            query = query.filter(Document.title.ilike(f"%{search}%"))
-        
-        return query.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
+            safe = search.strip()
+            if safe:
+                query = query.filter(Document.title.ilike(f"%{safe}%"))
+
+        # Sorting - safe mapping to columns
+        sort_col = Document.created_at
+        if sort_by == "updated_at":
+            sort_col = Document.updated_at
+        elif sort_by == "file_size":
+            sort_col = Document.file_size
+        elif sort_by == "title":
+            sort_col = Document.title
+
+        if order == "desc":
+            query = query.order_by(desc(sort_col))
+        else:
+            query = query.order_by(asc(sort_col))
+
+        return query.offset(skip).limit(limit).all()
     
     @staticmethod
     def get_document_by_id(db: Session, document_id: int, user: User) -> Document:
@@ -151,6 +198,47 @@ class DocumentService:
         db.refresh(document)
         
         return document
+    
+    @staticmethod
+    def count_user_documents(
+        db: Session,
+        user: User,
+        search: Optional[str] = None,
+        file_types: Optional[List[str]] = None,
+        processed: Optional[bool] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        size_min: Optional[int] = None,
+        size_max: Optional[int] = None
+    ) -> int:
+        """Return count matching same filters (used for pagination total)."""
+        q = db.query(Document).filter(Document.user_id == user.id)
+
+        if file_types:
+            lower_types = [t.lower() for t in file_types]
+            q = q.filter(Document.file_type.in_(lower_types))
+
+        if processed is True:
+            q = q.filter(Document.processed.is_(True))
+        elif processed is False:
+            q = q.filter(Document.processed.is_(False))
+
+        if date_from:
+            q = q.filter(Document.created_at >= date_from)
+        if date_to:
+            q = q.filter(Document.created_at <= date_to)
+
+        if size_min is not None:
+            q = q.filter(Document.file_size >= size_min)
+        if size_max is not None:
+            q = q.filter(Document.file_size <= size_max)
+
+        if search:
+            safe = search.strip()
+            if safe:
+                q = q.filter(Document.title.ilike(f"%{safe}%"))
+
+        return q.count()
     
     @staticmethod
     def delete_document(db: Session, document_id: int, user: User) -> bool:
