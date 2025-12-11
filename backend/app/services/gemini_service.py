@@ -125,7 +125,7 @@ class GeminiService:
                 question=query
             )
             
-            logger.info("🤖 Generating answer with Gemini 1.5 Flash...")
+            logger.info("🤖 Generating answer with Gemini 2.5 Flash...")
             
             response = model.generate_content(
                 prompt,
