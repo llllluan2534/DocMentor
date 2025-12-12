@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
-
 import logging
 import mimetypes
 import os
+
 from ..database import get_db, SessionLocal
 from ..schemas.document import (
     DocumentResponse, 
@@ -23,23 +24,20 @@ from ..utils.cache import cache
 router = APIRouter(prefix="/documents", tags=["Documents"])
 logger = logging.getLogger(__name__)
 
+
+# -----------------------------------------------------------
+# BACKGROUND PROCESSOR
+# -----------------------------------------------------------
 async def process_document_background(document_id: int, file_path: str):
-    """
-    Background task to process document
-    IMPORTANT: Create new DB session for background task
-    """
     logger.info(f"🚀 Background task STARTED for document {document_id}")
     db = SessionLocal()
     try:
         processor = DocumentProcessor()
         logger.info(f"📝 Calling processor.process_document for doc {document_id}")
-        
         await processor.process_document(db, document_id, file_path)
-        
         logger.info(f"✅ Background task COMPLETED for document {document_id}")
     except Exception as e:
         logger.error(f"❌ Background task FAILED for doc {document_id}: {str(e)}", exc_info=True)
-        
         try:
             doc = db.query(Document).filter(Document.id == document_id).first()
             if doc:
@@ -54,6 +52,10 @@ async def process_document_background(document_id: int, file_path: str):
         db.close()
         logger.info(f"🔒 DB session closed for document {document_id}")
 
+
+# -----------------------------------------------------------
+# UPLOAD DOCUMENT
+# -----------------------------------------------------------
 @router.post("/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -62,91 +64,74 @@ async def upload_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Upload document and process in background"""
-    
     logger.info(f"📤 Upload request from user {current_user.id}: {file.filename}")
     
-    # Upload document
     document = await DocumentService.upload_document(db, file, current_user, title)
-    
-    logger.info(f"✅ Document saved to DB: ID={document.id}, Path={document.file_path}")
-    
+
     logger.info(f"⏰ Adding background task for document {document.id}")
     background_tasks.add_task(
         process_document_background,
         document.id,
         document.file_path
     )
-    # Invalidate document list cache for this user
+
     try:
         cache_key = f"user_{current_user.id}_documents"
         cache.delete(cache_key)
     except Exception:
         logger.debug("Failed to delete documents cache", exc_info=True)
-    
+
     return DocumentUploadResponse(
         message="Document uploaded successfully. Processing in background...",
         document=document
     )
 
+
+# -----------------------------------------------------------
+# GET DOCUMENT LIST
+# -----------------------------------------------------------
 @router.get("/", response_model=DocumentList)
 def get_documents(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    search: Optional[str] = Query(None, description="Fulltext-like search on title"),
-    file_type: Optional[List[str]] = Query(None, description="Filter by file types, repeatable"),
-    processed: Optional[bool] = Query(None, description="Filter by processed status (true/false)"),
-    date_from: Optional[str] = Query(None, description="YYYY-MM-DD"),
-    date_to: Optional[str] = Query(None, description="YYYY-MM-DD"),
-    size_min: Optional[int] = Query(None, ge=0, description="Minimum file size in bytes"),
-    size_max: Optional[int] = Query(None, ge=0, description="Maximum file size in bytes"),
+    search: Optional[str] = Query(None),
+    file_type: Optional[List[str]] = Query(None),
+    processed: Optional[bool] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    size_min: Optional[int] = Query(None, ge=0),
+    size_max: Optional[int] = Query(None, ge=0),
     sort_by: Optional[str] = Query("created_at", regex="^(created_at|updated_at|file_size|title)$"),
     order: Optional[str] = Query("desc", regex="^(asc|desc)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Get documents for current user with filters, sorting and pagination.
-
-    Filters:
-      - file_type (repeatable): pdf, docx, txt, ...
-      - processed: true/false
-      - date_from/date_to: YYYY-MM-DD (inclusive)
-      - size_min/size_max: bytes
-    """
-    # Normalize/validate dates
     from datetime import datetime, time
+
     start_dt = None
     end_dt = None
-    if date_from:
-        try:
-            d = datetime.strptime(date_from, "%Y-%m-%d")
-            start_dt = datetime.combine(d.date(), time.min)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="date_from must be YYYY-MM-DD")
-    if date_to:
-        try:
-            d = datetime.strptime(date_to, "%Y-%m-%d")
-            end_dt = datetime.combine(d.date(), time.max)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="date_to must be YYYY-MM-DD")
 
-    # Build deterministic cache key from params
-    # Order of keys must be stable so same query maps to same cache entry
+    if date_from:
+        d = datetime.strptime(date_from, "%Y-%m-%d")
+        start_dt = datetime.combine(d.date(), time.min)
+
+    if date_to:
+        d = datetime.strptime(date_to, "%Y-%m-%d")
+        end_dt = datetime.combine(d.date(), time.max)
+
     cache_key = (
         f"user:{current_user.id}:docs:"
         f"skip={skip}:limit={limit}:search={search or ''}:"
         f"ft={'|'.join(file_type) if file_type else ''}:proc={processed}:"
-        f"df={date_from or ''}:dt={date_to or ''}:smin={size_min or ''}:smax={size_max or ''}:"
-        f"sort={sort_by}:{order}"
+        f"df={date_from or ''}:dt={date_to or ''}:"
+        f"smin={size_min or ''}:smax={size_max or ''}:"
+        f"sort={sort_by}:order={order}"
     )
 
-    # Try cache first
     cached = cache.get(cache_key)
     if cached:
         return cached
 
-    # Delegate to service which builds SQLAlchemy query
     documents = DocumentService.get_user_documents(
         db=db,
         user=current_user,
@@ -163,7 +148,6 @@ def get_documents(
         order=order
     )
 
-    # Get total count with same filters (fast COUNT)
     total = DocumentService.count_user_documents(
         db=db,
         user=current_user,
@@ -178,31 +162,29 @@ def get_documents(
 
     result = DocumentList(total=total, documents=documents)
 
-    # Cache result (short TTL)
     try:
         cache.set(cache_key, result, ttl_seconds=120)
     except Exception:
-        logger.debug("Failed to set documents cache", exc_info=True)
+        pass
 
     return result
 
-@router.get("/stats", response_model=DocumentStats)
-def get_document_stats(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Get document statistics for current user"""
-    return DocumentService.get_user_stats(db, current_user)
 
+# -----------------------------------------------------------
+# GET SINGLE DOCUMENT
+# -----------------------------------------------------------
 @router.get("/{document_id}", response_model=DocumentResponse)
 def get_document(
     document_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get single document by ID"""
     return DocumentService.get_document_by_id(db, document_id, current_user)
 
+
+# -----------------------------------------------------------
+# UPDATE DOCUMENT
+# -----------------------------------------------------------
 @router.put("/{document_id}", response_model=DocumentResponse)
 def update_document(
     document_id: int,
@@ -210,68 +192,63 @@ def update_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Update document metadata"""
     updated = DocumentService.update_document(
-        db, 
-        document_id, 
+        db,
+        document_id,
         current_user,
         title=document_update.title,
         metadata=document_update.metadata
     )
 
-    # Invalidate cache for this user's documents (best-effort)
     try:
         cache.delete(f"user_{current_user.id}_documents")
     except Exception:
-        logger.debug("Failed to delete documents cache on update", exc_info=True)
+        pass
 
     return updated
+
+
+# -----------------------------------------------------------
+# DOWNLOAD DOCUMENT (CHƯA CÓ PREVIEW)
+# -----------------------------------------------------------
 @router.get("/{document_id}/download")
 def download_document(
     document_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Quick Preview / Download document.
-    FE dùng endpoint này để tải file gốc về render preview.
-    """
-
-    # 1. Lấy document & bảo mật
     document = DocumentService.get_document_by_id(db, document_id, current_user)
 
     file_path = document.file_path
 
-    # 2. Kiểm tra file tồn tại
     if not os.path.exists(file_path):
-        raise HTTPException(
-            status_code=404,
-            detail="File not found on server"
-        )
+        raise HTTPException(status_code=404, detail="File not found")
 
-    # 3. Detect MIME type (PDF, DOCX, TXT,…)
     mime_type, _ = mimetypes.guess_type(file_path)
     if mime_type is None:
         mime_type = "application/octet-stream"
 
-    # 4. Trả file về FE
     return FileResponse(
         path=file_path,
         media_type=mime_type,
-        filename=document.title  # FE sẽ nhận đúng tên file
+        filename=document.title
     )
 
+
+# -----------------------------------------------------------
+# DELETE DOCUMENT
+# -----------------------------------------------------------
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(
     document_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete document"""
     DocumentService.delete_document(db, document_id, current_user)
-    # Invalidate document list cache for this user
+
     try:
         cache.delete(f"user_{current_user.id}_documents")
     except Exception:
-        logger.debug("Failed to delete documents cache on delete", exc_info=True)
+        pass
+
     return None
