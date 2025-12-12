@@ -1,7 +1,9 @@
-# backend/app/schemas/conversation.py
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import List, Optional
+
+# ✅ MỚI: Import QueryResponse từ file query.py để lấy cấu trúc đầy đủ (có documents)
+from .query import QueryResponse
 
 # ============================================================
 # REQUEST SCHEMAS
@@ -54,19 +56,16 @@ class ConversationWithCounts(ConversationBase):
     document_count: int = 0
 
 
-class QuerySummary(BaseModel):
-    """Minimal query info for conversation"""
-    id: int
-    query_text: str
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
+# (Class QuerySummary cũ đã bị loại bỏ vì thiếu thông tin documents/answer)
 
 
 class ConversationDetail(ConversationBase):
     """Full conversation with queries and documents"""
-    queries: List[QuerySummary] = []
+    
+    # ✅ ĐÃ SỬA: Dùng QueryResponse thay vì QuerySummary
+    # Giúp frontend nhận được đầy đủ: query_text, answer, DOCUMENTS, sources...
+    queries: List[QueryResponse] = []
+    
     document_ids: List[int] = []
 
 

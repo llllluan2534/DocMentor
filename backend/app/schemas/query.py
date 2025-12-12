@@ -3,21 +3,19 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import re
 
-
 # ============================================================
 # REQUEST SCHEMAS
 # ============================================================
 
 class QueryRequest(BaseModel):
-    query_text: str = Field(..., min_length=1, max_length=500)  # ✅ Sửa min_length từ 5 xuống 1
-    document_ids: List[int] = Field(default=[])  # ✅ Sửa: không bắt buộc, mặc định rỗng
+    query_text: str = Field(..., min_length=1, max_length=500)
+    document_ids: List[int] = Field(default=[])
     max_results: int = Field(default=5, ge=1, le=10)
-    conversation_id: Optional[int] = None  # ✅ THÊM: conversation_id trong body
+    conversation_id: Optional[int] = None
 
     @field_validator("document_ids")
     @classmethod
     def validate_document_ids(cls, v):
-        # ✅ Loại bỏ các ID không hợp lệ
         if v is None:
             return []
         return [doc_id for doc_id in v if isinstance(doc_id, int) and doc_id > 0]
@@ -32,7 +30,7 @@ class QueryRequest(BaseModel):
 
 
 # ============================================================
-# FEEDBACK SCHEMAS (giữ nguyên)
+# FEEDBACK SCHEMAS
 # ============================================================
 
 class QueryFeedbackBase(BaseModel):
@@ -68,6 +66,15 @@ class QueryFeedback(QueryFeedbackBase):
 # RESPONSE SCHEMAS
 # ============================================================
 
+# ✅ MỚI: Định nghĩa thông tin file gọn nhẹ để trả về kèm tin nhắn
+class DocumentTiny(BaseModel):
+    id: int
+    title: str
+    file_path: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 class SourceSchema(BaseModel):
     document_id: int
     document_title: Optional[str] = None
@@ -80,10 +87,17 @@ class QueryResponse(BaseModel):
     query_id: Optional[int] = None 
     query_text: str
     answer: str
-    sources: List[SourceSchema]
+    sources: List[SourceSchema] = [] # Mặc định là list rỗng tránh null
+    
+    # ✅ MỚI: Thêm trường này để Backend trả về file đính kèm
+    documents: List[DocumentTiny] = [] 
+    
     processing_time_ms: int
     confidence_score: float
     created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class QueryHistory(BaseModel):

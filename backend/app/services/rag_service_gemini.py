@@ -109,6 +109,9 @@ class RAGServiceGemini:
                 } for m in matches], 
                 execution_time=int((time.time() - start_time) * 1000)
             )
+            # 👇👇 QUAN TRỌNG: THÊM DÒNG NÀY ĐỂ LƯU MỐI QUAN HỆ VÀO BẢNG TRUNG GIAN 👇👇
+            query_record.documents = documents 
+            # 👆👆 Dòng này sẽ bảo SQLAlchemy tự động ghi vào bảng query_document_association
             db.add(query_record)
             db.commit()
             db.refresh(query_record)

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useSearchParams, useNavigate, useLocation } from "react-router-dom"; // ✅ Thêm useLocation
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { FiPlus } from "react-icons/fi";
 import { ChatMessage, Conversation } from "@/types/chat.types";
 import { chatService } from "@/services/chat/chatService";
@@ -45,7 +45,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   const [searchParams, setSearchParams] = useSearchParams();
 
   const navigate = useNavigate();
-  const location = useLocation(); // ✅ Hook để lấy dữ liệu truyền qua navigate
+  const location = useLocation(); // ✅ Hook để lấy dữ liệu state truyền qua navigate
   const { user } = useAuth();
 
   const sessionId = propSessionId || searchParams.get("sessionId");
@@ -93,10 +93,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           }
 
           // 1. Lấy dữ liệu từ Server
-          const history = await chatService.getChatHistory(contextId);
+          let history = await chatService.getChatHistory(contextId);
           console.log("✅ Loaded messages:", history.length);
 
-          // 2. ✅ LOGIC FIX: Hợp nhất dữ liệu file từ 'state' nếu Server trả về thiếu
+          // 2. ✅ LOGIC FIX: Khôi phục file từ 'state' nếu Server trả về thiếu
           // (Dành cho trường hợp vừa tạo conversation xong mà API chưa kịp index file)
           const navigationState = location.state as {
             tempAttachment?: any;
@@ -104,23 +104,39 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           } | null;
 
           if (history.length > 0 && navigationState) {
-            // Tìm tin nhắn User đầu tiên (thường là tin nhắn tạo conversation)
-            const firstUserMsg = history.find((m) => m.sender === "user");
+            // Tìm tin nhắn User đầu tiên
+            const firstUserMsgIndex = history.findIndex(
+              (m) => m.sender === "user"
+            );
 
-            if (firstUserMsg) {
-              // Nếu lịch sử Server thiếu attachment nhưng ta có trong state -> Gán vào
-              if (!firstUserMsg.attachment && navigationState.tempAttachment) {
+            if (firstUserMsgIndex !== -1) {
+              const firstMsg = history[firstUserMsgIndex];
+              let hasChanges = false;
+              let updatedMsg = { ...firstMsg };
+
+              // Check 1: Khôi phục File Upload (Attachment)
+              if (!updatedMsg.attachment && navigationState.tempAttachment) {
                 console.log("🛠️ Restoring missing attachment from state");
-                firstUserMsg.attachment = navigationState.tempAttachment;
+                updatedMsg.attachment = navigationState.tempAttachment;
+                hasChanges = true;
               }
-              // Tương tự với documents
+
+              // Check 2: Khôi phục Tài liệu chọn sẵn (Documents)
               if (
-                (!firstUserMsg.attachedDocuments ||
-                  firstUserMsg.attachedDocuments.length === 0) &&
+                (!updatedMsg.attachedDocuments ||
+                  updatedMsg.attachedDocuments.length === 0) &&
                 navigationState.tempDocs
               ) {
                 console.log("🛠️ Restoring missing documents from state");
-                firstUserMsg.attachedDocuments = navigationState.tempDocs;
+                updatedMsg.attachedDocuments = navigationState.tempDocs;
+                hasChanges = true;
+              }
+
+              // Nếu có thay đổi, cập nhật lại mảng history
+              if (hasChanges) {
+                const newHistory = [...history];
+                newHistory[firstUserMsgIndex] = updatedMsg;
+                history = newHistory;
               }
             }
           }
@@ -143,7 +159,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       }
     };
     loadData();
-  }, [contextId, location.state]); // ✅ Thêm location.state vào dependency
+  }, [contextId]); // ✅ Dependency quan trọng: location.state
 
   // ============================================================
   // HANDLE SEND MESSAGE - MAIN FUNCTION
@@ -297,10 +313,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         }
 
         // ✅ QUAN TRỌNG: Truyền state chứa thông tin file qua route mới
+        // Để useEffect ở trang mới có thể đọc và khôi phục hiển thị file
         navigate(`/user/chat/${newConvId}`, {
           replace: true,
           state: {
-            // Backup attachment data để useEffect có thể khôi phục
             tempAttachment: file
               ? {
                   fileName: file.name,
