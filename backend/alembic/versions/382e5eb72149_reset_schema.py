@@ -1,4 +1,4 @@
-"""reset schema
+"""Initial migration with document indexes
 
 Revision ID: 382e5eb72149
 Revises: 
@@ -55,6 +55,31 @@ def upgrade() -> None:
         op.create_index(op.f('ix_documents_id'), 'documents', ['id'], unique=False)
         op.create_index(op.f('ix_documents_title'), 'documents', ['title'], unique=False)
         
+        # ✅ THÊM CÁC INDEX MỚI CHO DOCUMENTS (từ file add_document_indexes)
+        op.create_index('idx_documents_user_id', 'documents', ['user_id'])
+        op.create_index('idx_documents_file_type', 'documents', ['file_type'])
+        op.create_index('idx_documents_processed', 'documents', ['processed'])
+        op.create_index('idx_documents_created_at', 'documents', ['created_at'])
+        op.create_index('idx_documents_file_size', 'documents', ['file_size'])
+        # composite index helpful for user-scoped queries
+        op.create_index('idx_documents_user_created_at', 'documents', ['user_id', 'created_at'])
+    else:
+        # Nếu bảng documents đã tồn tại, kiểm tra và thêm các index nếu chưa có
+        existing_indexes = [idx['name'] for idx in inspector.get_indexes('documents')]
+        
+        if 'idx_documents_user_id' not in existing_indexes:
+            op.create_index('idx_documents_user_id', 'documents', ['user_id'])
+        if 'idx_documents_file_type' not in existing_indexes:
+            op.create_index('idx_documents_file_type', 'documents', ['file_type'])
+        if 'idx_documents_processed' not in existing_indexes:
+            op.create_index('idx_documents_processed', 'documents', ['processed'])
+        if 'idx_documents_created_at' not in existing_indexes:
+            op.create_index('idx_documents_created_at', 'documents', ['created_at'])
+        if 'idx_documents_file_size' not in existing_indexes:
+            op.create_index('idx_documents_file_size', 'documents', ['file_size'])
+        if 'idx_documents_user_created_at' not in existing_indexes:
+            op.create_index('idx_documents_user_created_at', 'documents', ['user_id', 'created_at'])
+        
     # --- CONVERSATIONS ---
     if 'conversations' not in inspector.get_table_names():
         op.create_table(
@@ -75,7 +100,7 @@ def upgrade() -> None:
             'queries',
             sa.Column('id', sa.Integer(), primary_key=True, nullable=False),
             sa.Column('user_id', sa.Integer(), nullable=False),
-            sa.Column('conversation_id', sa.Integer(), nullable=True),  # ✅ THÊM conversation_id
+            sa.Column('conversation_id', sa.Integer(), nullable=True),  
             sa.Column('query_text', sa.Text(), nullable=False),
             sa.Column('response_text', sa.Text(), nullable=True),
             sa.Column('normalized_query', sa.String(), nullable=True),
@@ -84,11 +109,11 @@ def upgrade() -> None:
             sa.Column('rating', sa.Float(), nullable=True),
             sa.Column('created_at', sa.DateTime(), nullable=False),
             sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
-            sa.ForeignKeyConstraint(['conversation_id'], ['conversations.id'], ondelete='SET NULL')  # ✅ THÊM FK
+            sa.ForeignKeyConstraint(['conversation_id'], ['conversations.id'], ondelete='SET NULL')  
         )
         op.create_index(op.f('ix_queries_id'), 'queries', ['id'], unique=False)
         op.create_index(op.f('ix_queries_normalized_query'), 'queries', ['normalized_query'], unique=False)
-        op.create_index(op.f('ix_queries_conversation_id'), 'queries', ['conversation_id'], unique=False)  # ✅ THÊM INDEX
+        op.create_index(op.f('ix_queries_conversation_id'), 'queries', ['conversation_id'], unique=False)  
     else:
         # Nếu bảng queries đã tồn tại, thêm cột conversation_id
         columns = [c['name'] for c in inspector.get_columns('queries')]
@@ -182,6 +207,14 @@ def downgrade() -> None:
     op.drop_column('queries', 'rating')
     op.drop_column('queries', 'normalized_query')
     op.drop_column('queries', 'conversation_id')
+    
+    # ✅ XÓA CÁC INDEX MỚI TRƯỚC KHI XÓA BẢNG DOCUMENTS
+    op.drop_index('idx_documents_user_created_at', table_name='documents')
+    op.drop_index('idx_documents_file_size', table_name='documents')
+    op.drop_index('idx_documents_created_at', table_name='documents')
+    op.drop_index('idx_documents_processed', table_name='documents')
+    op.drop_index('idx_documents_file_type', table_name='documents')
+    op.drop_index('idx_documents_user_id', table_name='documents')
     
     # Xóa documents
     op.drop_index(op.f('ix_documents_title'), table_name='documents')

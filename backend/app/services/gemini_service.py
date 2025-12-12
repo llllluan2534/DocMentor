@@ -133,7 +133,7 @@ class GeminiService:
                     'temperature': 0.3,
                     'top_p': 0.8,
                     'top_k': 40,
-                    'max_output_tokens': 2048,
+                    'max_output_tokens': 8192,
                 }
             )
             
@@ -206,7 +206,7 @@ TÓM TẮT (chỉ tóm tắt, không thêm nhận xét):"""
                 safety_settings=self.safety_settings,
                 generation_config={
                     'temperature': 0.4,
-                    'max_output_tokens': 2048,
+                    'max_output_tokens': 4096,
                 }
             )
             
@@ -298,7 +298,7 @@ JSON (chỉ JSON, không text khác):
                 safety_settings=self.safety_settings,
                 generation_config={
                     'temperature': 0.5,
-                    'max_output_tokens': 2048,
+                    'max_output_tokens': 4096,
                 }
             )
             
