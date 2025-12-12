@@ -82,6 +82,7 @@ class DocumentApiService {
       },
     });
 
+    // Request Interceptor: Thêm Token vào Header
     this.axiosInstance.interceptors.request.use(
       (config) => {
         const token = this.getAuthToken();
@@ -96,6 +97,7 @@ class DocumentApiService {
       (error) => Promise.reject(error)
     );
 
+    // Response Interceptor: Xử lý lỗi chung
     this.axiosInstance.interceptors.response.use(
       (response) => {
         console.log("📥 API Response:", response.status, response.config.url);
@@ -199,78 +201,29 @@ class DocumentApiService {
   }
 
   /**
-   * 🔄 Download document content - FIXED VERSION v2
-   * ✅ Xử lý encoding Unicode (Tiếng Việt) đúng cách
-   * ✅ Sử dụng URL object để tránh double-encode
-   * ✅ Hỗ trợ cả absolute URL và relative path
+   * 🔄 Download document content - FIXED VERSION
+   * ✅ Sử dụng Endpoint Download riêng biệt thay vì truy cập static file
+   * ✅ Sử dụng responseType: 'blob' để xử lý file binary
    */
   async downloadDocument(documentId: string): Promise<Blob> {
     try {
-      // Lấy document metadata
-      const doc = await this.getDocument(documentId);
+      // Gọi trực tiếp vào endpoint download mới đã tạo ở Backend
+      const downloadUrl = `/documents/${documentId}/download`;
 
-      console.log("📄 Document metadata:", {
-        id: doc.id,
-        title: doc.title,
-        file_path: doc.file_path,
-        file_type: doc.file_type,
+      console.log("⬇️ Requesting download from API endpoint:", downloadUrl);
+
+      // Axios tự động xử lý BaseURL và Authorization Header từ interceptor
+      const response = await this.axiosInstance.get(downloadUrl, {
+        responseType: "blob", // Quan trọng: Báo cho axios trả về dạng Blob
       });
 
-      if (!doc.file_path) {
-        throw {
-          status: 400,
-          message: "Document has no file_path",
-          detail: "Cannot download file without path",
-        };
-      }
-
-      let downloadUrl: string;
-
-      // ✅ FIX: Kiểm tra xem file_path đã là full URL hay chưa
-      if (doc.file_path.startsWith("http")) {
-        // Đã là full URL
-        downloadUrl = doc.file_path;
-      } else {
-        // Là relative path, ghép với base URL
-        const path = doc.file_path.startsWith("/")
-          ? doc.file_path
-          : "/" + doc.file_path;
-        downloadUrl = this.apiBaseUrl + path;
-      }
-
-      // ✅ FIX QUAN TRỌNG: Sử dụng URL object để xử lý encoding đúng
-      // Điều này tránh double-encode khi có ký tự Unicode (Tiếng Việt)
-      const urlObj = new URL(downloadUrl);
-      const finalUrl = urlObj.toString();
-
-      console.log("✅ Final download URL:", finalUrl);
-
-      // ✅ Sử dụng fetch với URL object đã xử lý encoding
-      const response = await fetch(finalUrl, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${this.getAuthToken() || ""}`,
-        },
-      });
-
-      console.log("📡 Fetch response status:", response.status);
-
-      if (!response.ok) {
-        const text = await response.text();
-        console.error("❌ Download error response:", text);
-        throw {
-          status: response.status,
-          message: "Download failed",
-          detail: `HTTP ${response.status}: ${response.statusText}`,
-        };
-      }
-
-      const blob = await response.blob();
-      console.log("✅ Download successful, blob size:", blob.size);
-      return blob;
+      console.log("✅ Download successful, blob size:", response.data.size);
+      return response.data;
     } catch (error) {
       console.error("❌ downloadDocument error:", error);
+      // Ném lỗi ra để component gọi hàm này có thể hiển thị thông báo
       this.handleError(error);
+      throw error;
     }
   }
 
