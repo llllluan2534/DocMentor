@@ -26,8 +26,8 @@ class ConversationCreate(BaseModel):
 
 
 class ConversationUpdate(BaseModel):
-    """Update conversation title"""
-    title: str = Field(..., min_length=1, max_length=255)
+    title: Optional[str] = None
+    is_pinned: Optional[bool] = None
 
 
 class AddQueryToConversation(BaseModel):
@@ -43,6 +43,7 @@ class ConversationBase(BaseModel):
     id: int
     user_id: int
     title: str
+    is_pinned: bool = False # ✅ MỚI: Thêm trường is_pinned
     created_at: datetime
     updated_at: datetime
 
@@ -67,6 +68,8 @@ class ConversationDetail(ConversationBase):
     queries: List[QueryResponse] = []
     
     document_ids: List[int] = []
+
+
 
 
 class ConversationList(BaseModel):

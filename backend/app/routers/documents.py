@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
+
 import logging
+import mimetypes
+import os
 from ..database import get_db, SessionLocal
 from ..schemas.document import (
     DocumentResponse, 
@@ -223,6 +226,40 @@ def update_document(
         logger.debug("Failed to delete documents cache on update", exc_info=True)
 
     return updated
+@router.get("/{document_id}/download")
+def download_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Quick Preview / Download document.
+    FE dùng endpoint này để tải file gốc về render preview.
+    """
+
+    # 1. Lấy document & bảo mật
+    document = DocumentService.get_document_by_id(db, document_id, current_user)
+
+    file_path = document.file_path
+
+    # 2. Kiểm tra file tồn tại
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=404,
+            detail="File not found on server"
+        )
+
+    # 3. Detect MIME type (PDF, DOCX, TXT,…)
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if mime_type is None:
+        mime_type = "application/octet-stream"
+
+    # 4. Trả file về FE
+    return FileResponse(
+        path=file_path,
+        media_type=mime_type,
+        filename=document.title  # FE sẽ nhận đúng tên file
+    )
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(

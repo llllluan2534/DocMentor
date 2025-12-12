@@ -1,25 +1,11 @@
-# backend/app/models/document.py
-
-# 1. THÊM IMPORT "Table"
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Boolean, Text, Float, Table
+# ==========================================================
+# backend/app/models/document.py - UPDATED Query Model
+# ==========================================================
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Boolean, Text, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
 
-# ==========================================================
-# ✅ MỚI: BẢNG TRUNG GIAN (QUERY <-> DOCUMENT)
-# Bắt buộc phải có bảng này để lưu mối quan hệ nhiều-nhiều
-# ==========================================================
-query_document_association = Table(
-    'query_document_association',
-    Base.metadata,
-    Column('query_id', Integer, ForeignKey('queries.id', ondelete='CASCADE'), primary_key=True),
-    Column('document_id', Integer, ForeignKey('documents.id', ondelete='CASCADE'), primary_key=True)
-)
-
-# ==========================================================
-# DOCUMENT MODEL
-# ==========================================================
 class Document(Base):
     __tablename__ = "documents"
 
@@ -29,7 +15,6 @@ class Document(Base):
     file_path = Column(String, nullable=False)
     file_type = Column(String, nullable=False)
     file_size = Column(Integer, nullable=False)
-
     metadata_ = Column("doc_metadata", JSON, nullable=True)
     processed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -37,18 +22,9 @@ class Document(Base):
 
     # Relationships
     owner = relationship("User", back_populates="documents")
-    
-    # Quan hệ với Conversation (đã có từ trước)
     conversations = relationship(
         "Conversation",
         secondary="conversation_documents",
-        back_populates="documents"
-    )
-
-    # ✅ MỚI: Quan hệ ngược lại với Query (để biết document này thuộc query nào)
-    queries = relationship(
-        "Query",
-        secondary=query_document_association,
         back_populates="documents"
     )
 
@@ -57,7 +33,7 @@ class Document(Base):
 
 
 # ==========================================================
-# QUERY MODEL
+# QUERY MODEL - FIXED
 # ==========================================================
 class Query(Base):
     __tablename__ = "queries"
@@ -65,6 +41,7 @@ class Query(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     
+    # ✅ DIRECT FK to conversation (nullable - query có thể không thuộc conversation nào)
     conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True)
     
     query_text = Column(Text, nullable=False)
@@ -77,17 +54,11 @@ class Query(Base):
 
     # Relationships
     user = relationship("User", back_populates="queries")
+    
+    # ✅ MANY-TO-ONE: nhiều Queries → 1 Conversation
     conversation = relationship("Conversation", back_populates="queries")
+    
     feedback = relationship("Feedback", uselist=False, back_populates="query", cascade="all, delete-orphan")
-
-    # 👇👇 QUAN TRỌNG NHẤT: THÊM DÒNG NÀY 👇👇
-    # Để Router có thể gọi q.documents
-    documents = relationship(
-        "Document",
-        secondary=query_document_association,
-        back_populates="queries"
-    )
-    # 👆👆 -------------------------------- 👆👆
 
     def __repr__(self):
         return f"<Query(id={self.id}, user_id={self.user_id}, conversation_id={self.conversation_id})>"

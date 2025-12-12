@@ -4,28 +4,28 @@ from sqlalchemy import func
 from datetime import datetime
 from typing import Optional, List
 
+from ..schemas.conversation import ConversationUpdate  # <-- Dùng schema chuẩn
 from ..database import get_db
 from ..models.user import User
 from ..models.conversation import Conversation
-# 👇 QUAN TRỌNG: Import Document để query
-from ..models.document import Query as QueryModel, Document 
+from ..models.document import Query as QueryModel, Document
 from ..utils.security import get_current_user
 from pydantic import BaseModel
+
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
 
 # ============================================================
-# SCHEMAS (Inline)
+# INLINE SCHEMAS (chỉ giữ ConversationCreate)
 # ============================================================
 class ConversationCreate(BaseModel):
     title: str
     document_ids: Optional[List[int]] = None
+    is_pinned: Optional[bool] = False  # <-- Hỗ trợ pin ngay khi tạo
 
-class ConversationUpdate(BaseModel):
-    title: str
 
 # ============================================================
-# 1) CREATE CONVERSATION 
+# 1) CREATE CONVERSATION
 # ============================================================
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def create_conversation(
@@ -33,10 +33,16 @@ def create_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    conversation = Conversation(user_id=current_user.id, title=data.title)
+    conversation = Conversation(
+        user_id=current_user.id,
+        title=data.title,
+        is_pinned=data.is_pinned or False,  # <-- NEW
+    )
+
     db.add(conversation)
     db.flush()
 
+    # Gắn document vào conversation nếu có
     if data.document_ids:
         docs = db.query(Document).filter(
             Document.id.in_(data.document_ids),
@@ -50,11 +56,13 @@ def create_conversation(
     return {
         "id": conversation.id,
         "title": conversation.title,
+        "is_pinned": conversation.is_pinned,
         "created_at": conversation.created_at,
         "updated_at": conversation.updated_at,
         "queries": [],
-        "document_ids": [d.id for d in conversation.documents]
+        "document_ids": [d.id for d in conversation.documents],
     }
+
 
 # ============================================================
 # 2) GET ALL CONVERSATIONS
@@ -71,28 +79,37 @@ def get_conversations(
         .outerjoin(QueryModel, Conversation.id == QueryModel.conversation_id)
         .filter(Conversation.user_id == current_user.id)
         .group_by(Conversation.id)
-        .order_by(Conversation.updated_at.desc())
-        .offset(skip).limit(limit).all()
+        .order_by(
+            Conversation.is_pinned.desc(),      # <-- NEW: pinned lên đầu
+            Conversation.updated_at.desc()
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
     )
 
-    total = db.query(Conversation).filter(Conversation.user_id == current_user.id).count()
+    total = db.query(Conversation).filter(
+        Conversation.user_id == current_user.id
+    ).count()
+
     result = []
     for conv, query_count in conversations:
         result.append({
             "id": conv.id,
             "title": conv.title,
+            "is_pinned": conv.is_pinned,               # <-- NEW
             "created_at": conv.created_at,
             "updated_at": conv.updated_at,
             "query_count": query_count or 0,
             "document_count": len(conv.documents),
-            # 👇 MỚI: Trả về danh sách documents sơ lược cho Sidebar (nếu cần)
             "documents": [{"id": d.id, "title": d.title} for d in conv.documents]
         })
 
     return {"conversations": result, "total": total, "skip": skip, "limit": limit}
 
+
 # ============================================================
-# 3) GET CONVERSATION DETAIL (QUAN TRỌNG NHẤT - ĐÃ FIX)
+# 3) GET CONVERSATION DETAIL
 # ============================================================
 @router.get("/{conversation_id}")
 def get_conversation_detail(
@@ -100,7 +117,6 @@ def get_conversation_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # 1. Lấy Conversation
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
         Conversation.user_id == current_user.id
@@ -109,66 +125,96 @@ def get_conversation_detail(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # 2. Lấy Queries và JOIN sẵn Documents để không bị lỗi N+1
-    # Lưu ý: queries là list các object QueryModel
+    # Lấy Queries + Documents
     queries = (
         db.query(QueryModel)
-        .options(joinedload(QueryModel.documents)) # 🔥 Kích hoạt load documents
+        .options(joinedload(QueryModel.documents))
         .filter(QueryModel.conversation_id == conversation_id)
         .order_by(QueryModel.created_at.asc())
         .all()
     )
 
-    # 3. Format dữ liệu trả về (Map thủ công để chắc chắn 100%)
     formatted_queries = []
     for q in queries:
-        # 🔥 LOGIC LẤY FILE Ở ĐÂY 🔥
-        docs_data = []
-        if q.documents:
-            docs_data = [
-                {
-                    "id": d.id, 
-                    "title": d.title, 
-                    "file_path": d.file_path,
-                    "file_type": d.file_type
-                } 
-                for d in q.documents
-            ]
-        
+        docs_data = [
+            {
+                "id": d.id,
+                "title": d.title,
+                "file_path": d.file_path,
+                "file_type": d.file_type
+            }
+            for d in q.documents
+        ]
+
         formatted_queries.append({
             "id": q.id,
             "query_text": q.query_text,
             "response_text": q.response_text or "",
             "created_at": q.created_at,
-            "documents": docs_data  # ✅ Đã có documents
+            "documents": docs_data
         })
 
     return {
         "id": conversation.id,
         "user_id": conversation.user_id,
         "title": conversation.title,
+        "is_pinned": conversation.is_pinned,     # <-- NEW
         "created_at": conversation.created_at,
         "updated_at": conversation.updated_at,
-        "queries": formatted_queries, # ✅ Trả về list đã format
+        "queries": formatted_queries,
         "document_ids": [d.id for d in conversation.documents]
     }
 
+
 # ============================================================
-# 4) UPDATE & DELETE (Giữ nguyên cho ngắn gọn)
+# 4) UPDATE CONVERSATION
 # ============================================================
 @router.put("/{conversation_id}")
-def update_conversation(conversation_id: int, data: ConversationUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    conversation = db.query(Conversation).filter(Conversation.id == conversation_id, Conversation.user_id == current_user.id).first()
-    if not conversation: raise HTTPException(status_code=404, detail="Not found")
-    conversation.title = data.title
+def update_conversation(
+    conversation_id: int,
+    data: ConversationUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.user_id == current_user.id
+    ).first()
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if data.title is not None:
+        conversation.title = data.title
+
+    if data.is_pinned is not None:
+        conversation.is_pinned = data.is_pinned  # <-- NEW
+
     conversation.updated_at = datetime.utcnow()
     db.commit()
+    db.refresh(conversation)
+
     return conversation
 
+
+# ============================================================
+# 5) DELETE CONVERSATION
+# ============================================================
 @router.delete("/{conversation_id}")
-def delete_conversation(conversation_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    conversation = db.query(Conversation).filter(Conversation.id == conversation_id, Conversation.user_id == current_user.id).first()
-    if not conversation: raise HTTPException(status_code=404, detail="Not found")
+def delete_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.user_id == current_user.id
+    ).first()
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Not found")
+
     db.delete(conversation)
     db.commit()
+
     return {"message": "Deleted"}
