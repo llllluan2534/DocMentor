@@ -54,8 +54,6 @@ def upgrade() -> None:
         )
         op.create_index(op.f('ix_documents_id'), 'documents', ['id'], unique=False)
         op.create_index(op.f('ix_documents_title'), 'documents', ['title'], unique=False)
-        
-        # ✅ THÊM CÁC INDEX MỚI CHO DOCUMENTS (từ file add_document_indexes)
         op.create_index('idx_documents_user_id', 'documents', ['user_id'])
         op.create_index('idx_documents_file_type', 'documents', ['file_type'])
         op.create_index('idx_documents_processed', 'documents', ['processed'])
@@ -87,13 +85,25 @@ def upgrade() -> None:
             sa.Column('id', sa.Integer(), primary_key=True, nullable=False),
             sa.Column('user_id', sa.Integer(), sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False),
             sa.Column('title', sa.String(), nullable=False),
+            sa.Column('is_pinned', sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column('created_at', sa.DateTime(), nullable=False),
             sa.Column('updated_at', sa.DateTime(), nullable=True),
         )
         op.create_index(op.f('ix_conversations_id'), 'conversations', ['id'], unique=False)
+        op.create_index('idx_conversations_user_pinned', 'conversations', ['user_id', 'is_pinned'])
+    else:
+        # Nếu bảng conversations đã tồn tại, thêm cột is_pinned nếu chưa có
+        columns = [c['name'] for c in inspector.get_columns('conversations')]
+        
+        if 'is_pinned' not in columns:
+            op.add_column(
+                'conversations',
+                sa.Column('is_pinned', sa.Boolean(), nullable=False, server_default=sa.false())
+            )
+            op.create_index('idx_conversations_user_pinned', 'conversations', ['user_id', 'is_pinned'])
 
 
-    # --- QUERIES (CẬP NHẬT: THÊM conversation_id) ---
+    # --- QUERIES ---
     if 'queries' not in inspector.get_table_names():
         # Tạo mới bảng queries với conversation_id
         op.create_table(
@@ -132,7 +142,6 @@ def upgrade() -> None:
                 ondelete='SET NULL'
             )
         
-        # Giữ các cập nhật cũ
         if 'normalized_query' not in columns:
             op.add_column('queries', sa.Column('normalized_query', sa.String(), nullable=True))
             op.create_index(op.f('ix_queries_normalized_query'), 'queries', ['normalized_query'], unique=False)
@@ -208,7 +217,6 @@ def downgrade() -> None:
     op.drop_column('queries', 'normalized_query')
     op.drop_column('queries', 'conversation_id')
     
-    # ✅ XÓA CÁC INDEX MỚI TRƯỚC KHI XÓA BẢNG DOCUMENTS
     op.drop_index('idx_documents_user_created_at', table_name='documents')
     op.drop_index('idx_documents_file_size', table_name='documents')
     op.drop_index('idx_documents_created_at', table_name='documents')
@@ -220,6 +228,8 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_documents_title'), table_name='documents')
     op.drop_index(op.f('ix_documents_id'), table_name='documents')
     op.drop_table('documents')
+    
+    op.drop_index('idx_conversations_user_pinned', table_name='conversations')
     
     # Xóa conversations
     op.drop_index(op.f('ix_conversations_id'), table_name='conversations')
