@@ -32,7 +32,12 @@ export function useQuery<T = any>(options: UseQueryOptions): UseQueryResult<T> {
       setLoading(true);
       setError(null);
 
-      const token = localStorage.getItem('token');
+      // Support both session/local storage keys used across the app
+      const token =
+        localStorage.getItem('auth_token') ||
+        sessionStorage.getItem('auth_token') ||
+        localStorage.getItem('token') ||
+        sessionStorage.getItem('token');
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...options.headers,

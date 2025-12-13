@@ -1,13 +1,15 @@
-// ============================================================
-// FILE: types/chat.types.ts
-// ============================================================
+// src/types/chat.types.ts
 
 // ✅ SourceReference interface - định nghĩa source tham khảo
 export interface SourceReference {
   documentId: string;
   documentTitle: string;
   pageNumber: number | null;
+  similarityScore?: number;
 }
+
+// Alias for backward compatibility
+export type ChatSource = SourceReference;
 
 // ✅ ChatMessage interface - định nghĩa một tin nhắn trong chat
 export interface ChatMessage {
@@ -15,20 +17,23 @@ export interface ChatMessage {
   text: string;
   sender: "user" | "ai";
   timestamp: string;
-  sources?: SourceReference[];
   status?: "sent" | "error" | "sending" | "loading";
 
+  // File attachments
   attachment?: {
     fileName: string;
     fileSize: number;
     fileType: string;
   };
 
-  // ✅ THÊM MỚI: Documents được sử dụng để trả lời
+  // ✅ Documents được sử dụng để trả lời
   attachedDocuments?: Array<{
     id: string;
     title: string;
   }>;
+
+  // ✅ Sources for AI responses
+  sources?: SourceReference[];
 }
 
 // ✅ Conversation interface - định nghĩa một cuộc trò chuyện
@@ -37,12 +42,15 @@ export interface Conversation {
   title: string;
   createdAt: string;
   updatedAt?: string;
+  lastMessageAt?: string;
+  messageCount?: number;
   isPinned?: boolean;
-  // 👇 THÊM MỚI: Thông tin tài liệu
-  documents?: {
+
+  // ✅ Document info
+  documents?: Array<{
     id: string | number;
     title: string;
-  }[];
+  }>;
   documentCount?: number;
 }
 

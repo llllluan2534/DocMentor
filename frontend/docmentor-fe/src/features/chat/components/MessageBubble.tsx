@@ -8,15 +8,14 @@ import {
   FiFileText,
   FiFile,
   FiBookOpen,
-  FiArrowUpRight,
-  FiEdit3, // Icon sửa
-  FiCheck, // Icon lưu
-  FiX, // Icon hủy
+  FiEdit3,
+  FiCheck,
+  FiX,
+  FiExternalLink,
 } from "react-icons/fi";
 
 interface MessageBubbleProps {
   message: ChatMessage;
-  // ✅ Callback để xử lý lưu tin nhắn sau khi sửa (Optional)
   onEditMessage?: (messageId: string, newText: string) => void;
 }
 
@@ -24,29 +23,30 @@ const formatBytes = (bytes: number, decimals = 2) => {
   if (bytes === 0) return "0 Bytes";
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+  const sizes = ["Bytes", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
 };
 
 const getFileIcon = (fileName: string, isUserBubble: boolean) => {
-  const colorClass = isUserBubble ? "text-white/90" : "text-blue-500";
   const name = fileName || "";
-
   if (name.toLowerCase().endsWith("pdf"))
     return (
       <FiFileText
-        className={`w-6 h-6 ${isUserBubble ? "text-white" : "text-red-500"}`}
+        className={`w-5 h-5 ${isUserBubble ? "text-white" : "text-red-500"}`}
       />
     );
   if (name.match(/\.(doc|docx)$/i))
     return (
       <FiFileText
-        className={`w-6 h-6 ${isUserBubble ? "text-white" : "text-blue-500"}`}
+        className={`w-5 h-5 ${isUserBubble ? "text-white" : "text-blue-500"}`}
       />
     );
-
-  return <FiFile className={`w-6 h-6 ${colorClass}`} />;
+  return (
+    <FiFile
+      className={`w-5 h-5 ${isUserBubble ? "text-white/90" : "text-gray-500"}`}
+    />
+  );
 };
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -56,22 +56,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const isUser = message.sender === "user";
   const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  // --- STATES CHO CHỨC NĂNG EDIT ---
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState(message.text);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Reset text khi message gốc thay đổi
   useEffect(() => {
     setEditedText(message.text);
   }, [message.text]);
 
-  // Auto focus vào textarea khi bấm sửa
   useEffect(() => {
     if (isEditing && textareaRef.current) {
       textareaRef.current.focus();
-      // Đặt con trỏ về cuối dòng
       textareaRef.current.setSelectionRange(
         textareaRef.current.value.length,
         textareaRef.current.value.length
@@ -79,37 +74,50 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   }, [isEditing]);
 
-  // --- LOGIC TEXT & NGUỒN (AI) ---
+  // ✅ Xử lý text và sources thông minh
   const { displayText, activeSources } = useMemo(() => {
     if (isUser) return { displayText: message.text, activeSources: [] };
 
     let sources = message.sources ? [...message.sources] : [];
     let text = message.text || "";
-    const regex = /\[(?:Nguồn|Source):\s*(.*?)\]/gi;
+
+    // Parse inline citations [1], [2], [1, 2]
+    const citationRegex = /\[(\d+(?:,\s*\d+)*)\]/g;
+    const citationsInText = new Set<number>();
     let match;
 
+    while ((match = citationRegex.exec(text)) !== null) {
+      const nums = match[1].split(",").map((n) => parseInt(n.trim()));
+      nums.forEach((n) => citationsInText.add(n));
+    }
+
+    // Tự động extract sources từ text nếu chưa có
     if (sources.length === 0) {
-      const textToScan = text;
-      while ((match = regex.exec(textToScan)) !== null) {
-        if (match[1]) {
-          sources.push({
-            documentId: `gen-${Math.random().toString(36).substr(2, 9)}`,
-            documentTitle: match[1].trim(),
-            pageNumber: null,
-          });
-        }
+      const sourceRegex =
+        /\[(?:Nguồn|Source)\s*(\d+):\s*(.*?)(?:,\s*Page\s*(\d+))?\]/gi;
+      while ((match = sourceRegex.exec(text)) !== null) {
+        sources.push({
+          documentId: `gen-${match[1]}`,
+          documentTitle: match[2].trim(),
+          pageNumber: match[3] ? parseInt(match[3]) : null,
+        });
       }
     }
 
+    // Clean text: xóa phần [Nguồn X: ...] nhưng giữ [1], [2]
     const cleanedText = text
-      .replace(/\[(?:Nguồn|Source):\s*[\s\S]*?\]/gi, "")
+      .replace(/\[(?:Nguồn|Source)\s*\d+:\s*[\s\S]*?\]/gi, "")
       .trim();
-    return { displayText: cleanedText, activeSources: sources };
+
+    // Filter sources theo citations thực tế
+    const usedSources = sources.filter(
+      (_, idx) => citationsInText.size === 0 || citationsInText.has(idx + 1)
+    );
+
+    return { displayText: cleanedText, activeSources: usedSources };
   }, [message.text, message.sources, isUser]);
 
-  // --- ACTIONS ---
   const handleCopy = () => {
-    // Copy text đang hiển thị hoặc text gốc
     const textToCopy = isUser ? message.text : displayText;
     navigator.clipboard.writeText(textToCopy);
     setCopiedId(message.id);
@@ -126,34 +134,29 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   };
 
-  // --- EDIT ACTIONS ---
   const handleSaveEdit = () => {
     if (editedText.trim() !== message.text) {
-      // Gọi callback để parent component xử lý logic API/State
       onEditMessage?.(message.id, editedText);
     }
     setIsEditing(false);
   };
 
   const handleCancelEdit = () => {
-    setEditedText(message.text); // Revert lại text cũ
+    setEditedText(message.text);
     setIsEditing(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Bấm Enter để lưu, Shift+Enter để xuống dòng
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSaveEdit();
     }
-    // Bấm Escape để hủy
     if (e.key === "Escape") {
       handleCancelEdit();
     }
   };
 
-  // --- RENDER SECTIONS ---
-
+  // Render User's attached files
   const renderUserFiles = () => {
     if (!isUser) return null;
     const filesToRender = [];
@@ -164,7 +167,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         name: message.attachment.fileName,
         type: message.attachment.fileType,
         size: message.attachment.fileSize,
-        label: "File tải lên",
+        label: "📎 File tải lên",
       });
     }
 
@@ -176,7 +179,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           name: doc.title || "Tài liệu không tên",
           type: "document",
           size: 0,
-          label: "Tài liệu đính kèm",
+          label: "📚 Tài liệu",
         });
       });
     }
@@ -184,22 +187,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     if (filesToRender.length === 0) return null;
 
     return (
-      <div className="flex flex-col gap-2 mb-3 w-full">
+      <div className="flex flex-col w-full gap-2 mb-3">
         {filesToRender.map((file) => (
           <div
             key={file.id}
-            className="flex items-center gap-3 p-3 rounded-lg bg-white/10 border border-white/20 backdrop-blur-sm transition-colors hover:bg-white/20 overflow-hidden"
+            className="flex items-center gap-3 p-3 transition-all border rounded-lg bg-white/10 border-white/20 backdrop-blur-sm hover:bg-white/20 hover:border-white/30"
           >
             <div className="flex-shrink-0">{getFileIcon(file.name, true)}</div>
             <div className="flex-grow min-w-0">
               <p
-                className="font-semibold text-sm text-white truncate"
+                className="text-sm font-medium text-white truncate"
                 title={file.name}
               >
                 {file.name}
               </p>
-              <div className="flex items-center gap-2 text-xs text-blue-100/80">
-                <span className="uppercase tracking-wide">{file.label}</span>
+              <div className="flex items-center gap-2 text-xs text-blue-100/70">
+                <span>{file.label}</span>
                 {file.size > 0 && <span>• {formatBytes(file.size)}</span>}
               </div>
             </div>
@@ -209,59 +212,73 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     );
   };
 
+  // ✅ Render Sources với design mới
   const renderSources = () => {
     if (isUser || !activeSources || activeSources.length === 0) return null;
 
     return (
-      <div className="mt-4 pt-3 border-t border-gray-300/50 dark:border-gray-600/50 w-full">
+      <div className="pt-4 mt-4 border-t border-gray-200/30 dark:border-gray-700/30">
         <div className="flex items-center gap-2 mb-3">
-          <FiBookOpen className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-          <span className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-            Nguồn tham khảo
+          <div className="p-1.5 rounded-lg bg-blue-500/10">
+            <FiBookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          </div>
+          <span className="text-xs font-semibold tracking-wide text-gray-700 uppercase dark:text-gray-300">
+            Nguồn tham khảo ({activeSources.length})
           </span>
         </div>
-        <div className="grid grid-cols-1 gap-2">
-          {activeSources.map((source, index) => (
-            <div
-              key={index}
-              className="group flex items-center justify-between p-2.5 rounded-lg bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition-all cursor-pointer"
-            >
-              <div className="flex items-center gap-3 overflow-hidden">
-                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/50">
-                  <span className="text-[10px] font-bold">{index + 1}</span>
+        <div className="space-y-2">
+          {activeSources.map((source, index) => {
+            // Handle both old and new field names
+            const docTitle =
+              source.documentTitle ||
+              (source as any).document_title ||
+              "Unknown";
+            const pageNum =
+              source.pageNumber ?? (source as any).page_number ?? null;
+
+            return (
+              <div
+                key={`${source.documentId}-${index}`}
+                className="flex items-start gap-3 p-3 transition-all border rounded-lg cursor-pointer group bg-gradient-to-r from-blue-50/50 to-transparent dark:from-blue-900/10 border-blue-100/50 dark:border-blue-800/30 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-sm"
+              >
+                <div className="flex items-center justify-center flex-shrink-0 w-6 h-6 text-xs font-bold text-white bg-blue-500 rounded-full">
+                  {index + 1}
                 </div>
-                <div className="flex flex-col min-w-0">
-                  <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                    {source.documentTitle}
-                  </span>
-                  {source.pageNumber && (
-                    <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                      Trang {source.pageNumber}
-                    </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 truncate transition-colors dark:text-gray-200 group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                    {docTitle}
+                  </p>
+                  {pageNum && pageNum > 0 && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      📄 Trang {pageNum}
+                    </p>
+                  )}
+                  {source.similarityScore && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                      Độ liên quan: {(source.similarityScore * 100).toFixed(0)}%
+                    </p>
                   )}
                 </div>
+                <FiExternalLink className="w-4 h-4 text-gray-400 transition-opacity opacity-0 group-hover:opacity-100" />
               </div>
-              <FiArrowUpRight className="w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
   };
 
-  // ✅ Render Buttons cho User (Copy & Edit)
   const renderUserActions = () => {
-    if (!isUser || isEditing) return null; // Ẩn khi đang edit
-
+    if (!isUser || isEditing) return null;
     return (
-      <div className="flex items-center gap-1 mt-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center justify-end gap-1 mt-2 transition-opacity opacity-0 group-hover:opacity-100">
         <button
           onClick={handleCopy}
           className="p-1.5 rounded-md hover:bg-white/20 text-blue-100 hover:text-white transition-colors"
           title="Sao chép"
         >
           {copiedId === message.id ? (
-            <span className="text-xs font-bold text-white">✓</span>
+            <FiCheck className="w-3.5 h-3.5" />
           ) : (
             <FiCopy className="w-3.5 h-3.5" />
           )}
@@ -277,36 +294,48 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     );
   };
 
-  // ✅ Render Buttons cho AI (Copy, Share, Like...)
   const renderAIActions = () => {
     if (isUser) return null;
     return (
-      <div className="flex items-center gap-1 mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-1 mt-3 transition-opacity opacity-0 group-hover:opacity-100">
         <button
           onClick={handleCopy}
-          className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/10 text-gray-500 dark:text-gray-400 transition-colors"
+          className="p-2 text-gray-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-400"
+          title="Sao chép"
         >
           {copiedId === message.id ? (
-            <span className="text-xs font-bold text-green-500">✓</span>
+            <FiCheck className="w-4 h-4 text-green-500" />
           ) : (
             <FiCopy className="w-4 h-4" />
           )}
         </button>
         <button
           onClick={handleShare}
-          className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/10 text-gray-500 dark:text-gray-400 transition-colors"
+          className="p-2 text-gray-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-400"
+          title="Chia sẻ"
         >
           <FiShare2 className="w-4 h-4" />
         </button>
+        <div className="w-px h-5 mx-1 bg-gray-300 dark:bg-gray-600"></div>
         <button
           onClick={() => setFeedback(feedback === "like" ? null : "like")}
-          className={`p-2 rounded transition-colors ${feedback === "like" ? "text-green-600 bg-green-50 dark:bg-green-900/20" : "text-gray-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/10"}`}
+          className={`p-2 rounded-lg transition-colors ${
+            feedback === "like"
+              ? "text-green-600 bg-green-50 dark:bg-green-900/20"
+              : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+          }`}
+          title="Hữu ích"
         >
           <FiThumbsUp className="w-4 h-4" />
         </button>
         <button
           onClick={() => setFeedback(feedback === "dislike" ? null : "dislike")}
-          className={`p-2 rounded transition-colors ${feedback === "dislike" ? "text-red-600 bg-red-50 dark:bg-red-900/20" : "text-gray-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/10"}`}
+          className={`p-2 rounded-lg transition-colors ${
+            feedback === "dislike"
+              ? "text-red-600 bg-red-50 dark:bg-red-900/20"
+              : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+          }`}
+          title="Không hữu ích"
         >
           <FiThumbsDown className="w-4 h-4" />
         </button>
@@ -316,18 +345,38 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   return (
     <div
-      className={`flex items-start gap-3 w-full ${isUser ? "justify-end" : "justify-start"}`}
+      className={`flex items-start gap-3 w-full ${
+        isUser ? "justify-end" : "justify-start"
+      }`}
     >
+      {/* AI Avatar */}
+      {!isUser && (
+        <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-lg shadow-md bg-gradient-to-br from-blue-500 to-purple-600">
+          <svg
+            className="w-5 h-5 text-white"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+            />
+          </svg>
+        </div>
+      )}
+
       <div
-        className={`group relative max-w-[85%] md:max-w-xl rounded-2xl px-5 py-4 shadow-sm ${
+        className={`group relative max-w-[85%] md:max-w-2xl rounded-2xl px-5 py-4 shadow-sm ${
           isUser
-            ? "bg-blue-600 text-white rounded-br-sm"
-            : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-sm border border-transparent dark:border-gray-700"
+            ? "bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-br-sm"
+            : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-bl-sm"
         }`}
       >
         {renderUserFiles()}
 
-        {/* --- NỘI DUNG CHÍNH: Xử lý Edit Mode --- */}
         {isEditing ? (
           <div className="w-full">
             <textarea
@@ -356,22 +405,28 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             </div>
           </div>
         ) : (
-          /* Chế độ hiển thị bình thường */
           <>
             {(isUser ? message.text : displayText) && (
-              <div className="whitespace-pre-wrap leading-relaxed text-[15px]">
-                {isUser ? message.text : displayText}
+              <div className="prose-sm prose max-w-none dark:prose-invert">
+                <div className="whitespace-pre-wrap leading-relaxed text-[15px]">
+                  {isUser ? message.text : displayText}
+                </div>
               </div>
             )}
           </>
         )}
 
         {renderSources()}
-
-        {/* Nút hành động (Tách biệt User và AI) */}
         {renderUserActions()}
         {renderAIActions()}
       </div>
+
+      {/* User Avatar */}
+      {isUser && (
+        <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 text-sm font-semibold text-white rounded-lg bg-gradient-to-br from-gray-600 to-gray-700">
+          U
+        </div>
+      )}
     </div>
   );
 };

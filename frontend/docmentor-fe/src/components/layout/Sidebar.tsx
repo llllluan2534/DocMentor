@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { mockAuthService, User } from "@/services/auth/mockAuthService";
+import { realAuthService, User } from "@/services/auth/authService";
 
 interface UserSidebarProps {
   isOpen: boolean;
@@ -8,21 +8,27 @@ interface UserSidebarProps {
 }
 
 const Sidebar = ({ isOpen, onClose }: UserSidebarProps) => {
-  const [user, setUser] = useState<User | null>(null);
   const navigate = useNavigate();
   const location = useLocation(); // ✅ Dùng để xác định menu nào đang active
 
-  // Lấy user khi component mount
+  // Local user state
+  const [user, setUser] = useState<User | null>(null);
+
+  // Fetch current user on mount
   useEffect(() => {
-    const currentUser = mockAuthService.getCurrentUser();
-    setUser(currentUser);
+    const fetchUser = async () => {
+      const currentUser = await realAuthService.getCurrentUser();
+      setUser(currentUser);
+    };
+    fetchUser();
   }, []);
 
-  const handleLogout = () => {
-    mockAuthService.logout();
+  const handleLogout = async () => {
+    await realAuthService.logout();
     setUser(null);
-    navigate("/login"); // ✅ Điều hướng sang trang login sau khi logout
+    navigate("/login");
   };
+
 
   // ✅ Cập nhật đúng đường dẫn (nằm trong /user)
   const menuItems = [
@@ -42,7 +48,7 @@ const Sidebar = ({ isOpen, onClose }: UserSidebarProps) => {
       <nav className="flex flex-col h-full p-4">
         {/* Main Navigation */}
         <div className="flex-1">
-          <h3 className="px-4 mb-2 text-xs font-semibold text-text-muted uppercase tracking-wider">
+          <h3 className="px-4 mb-2 text-xs font-semibold tracking-wider uppercase text-text-muted">
             Menu chính
           </h3>
           <div className="space-y-1">
@@ -72,7 +78,7 @@ const Sidebar = ({ isOpen, onClose }: UserSidebarProps) => {
                 key={index}
                 to={item.path}
                 onClick={onClose}
-                className="flex items-center space-x-3 px-4 py-3 rounded-lg text-text-muted hover:bg-accent hover:text-white transition-all"
+                className="flex items-center px-4 py-3 space-x-3 transition-all rounded-lg text-text-muted hover:bg-accent hover:text-white"
               >
                 <span className="text-sm">{item.label}</span>
               </Link>
@@ -81,18 +87,18 @@ const Sidebar = ({ isOpen, onClose }: UserSidebarProps) => {
         </div>
 
         {/* User Info */}
-        <div className="border-t border-accent pt-4 mt-4">
-          <div className="bg-gradient-to-r from-primary/10 to-secondary/10 rounded-lg p-3 mb-3 border border-primary/20">
+        <div className="pt-4 mt-4 border-t border-accent">
+          <div className="p-3 mb-3 border rounded-lg bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-primary to-secondary rounded-full flex items-center justify-center overflow-hidden">
+              <div className="flex items-center justify-center w-10 h-10 overflow-hidden rounded-full bg-gradient-to-br from-primary to-secondary">
                 {user?.avatar ? (
                   <img
                     src={user.avatar}
                     alt={user.name}
-                    className="w-full h-full object-cover rounded-full"
+                    className="object-cover w-full h-full rounded-full"
                   />
                 ) : (
-                  <span className="text-white text-sm font-medium">
+                  <span className="text-sm font-medium text-white">
                     {user?.name?.charAt(0)?.toUpperCase() || "?"}
                   </span>
                 )}
@@ -101,7 +107,7 @@ const Sidebar = ({ isOpen, onClose }: UserSidebarProps) => {
                 <p className="text-sm font-medium text-white truncate">
                   {user?.name || "Khách"}
                 </p>
-                <p className="text-xs text-text-muted truncate">
+                <p className="text-xs truncate text-text-muted">
                   {user?.email || "Chưa đăng nhập"}
                 </p>
               </div>
@@ -111,14 +117,14 @@ const Sidebar = ({ isOpen, onClose }: UserSidebarProps) => {
           {user ? (
             <button
               onClick={handleLogout}
-              className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all"
+              className="flex items-center w-full px-4 py-3 space-x-3 text-red-400 transition-all rounded-lg hover:bg-red-500/10 hover:text-red-300"
             >
               <span className="text-sm font-medium">Đăng xuất</span>
             </button>
           ) : (
             <Link
               to="/login"
-              className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-primary hover:bg-primary/10 transition-all"
+              className="flex items-center w-full px-4 py-3 space-x-3 transition-all rounded-lg text-primary hover:bg-primary/10"
             >
               <span className="text-sm font-medium">Đăng nhập</span>
             </Link>

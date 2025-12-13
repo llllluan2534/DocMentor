@@ -44,7 +44,7 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
   };
 
   const menuItems = [
-    //{ label: "Dashboard", path: "/user/dashboard" },
+    { label: "Dashboard", path: "/user/dashboard" },
     { label: "Chat AI", path: "/user/chat" },
     { label: "Tài liệu của tôi", path: "/user/documents" },
   ];

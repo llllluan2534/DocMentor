@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import time
 import logging
+import re
 from ..config import settings
 from ..models.document import Document, Query as QueryModel
 from ..models.user import User
@@ -18,12 +19,90 @@ from ..utils.prompts import (
 logger = logging.getLogger(__name__)
 
 class RAGServiceGemini:
-    """RAG Service using optimized prompts"""
+    """RAG Service using optimized prompts with source extraction"""
 
     def __init__(self):
         self.embedding_service = EmbeddingServiceGemini()
         self.gemini_service = GeminiService()
 
+    # ============================================================================
+    # ✅ NEW: Extract sources from AI response
+    # ============================================================================
+    def extract_sources_from_response(
+        self,
+        answer_text: str,
+        retrieved_chunks: List[Dict],
+        doc_map: Dict[int, Document]
+    ) -> Tuple[str, List[Dict]]:
+        """
+        Extract source citations from AI response and map to actual documents
+        
+        Args:
+            answer_text: Raw AI response with citations [1], [2], etc.
+            retrieved_chunks: Original chunks used for context
+            doc_map: Mapping of document IDs to Document objects
+            
+        Returns:
+            Tuple of (cleaned_text, sources_list)
+        """
+        sources = []
+        citation_map = {}
+        
+        # Build map: citation number -> document info
+        for idx, chunk in enumerate(retrieved_chunks, 1):
+            doc_id = chunk.get('document_id')
+            doc = doc_map.get(doc_id)
+            
+            if doc:
+                citation_map[idx] = {
+                    'document_id': str(doc_id),
+                    'document_title': doc.title,
+                    'page_number': chunk.get('page_number'),
+                    'similarity_score': chunk.get('score', 0.0)
+                }
+        
+        # Find all citations in text: [1], [2], [1, 2]
+        citation_pattern = r'\[(\d+(?:,\s*\d+)*)\]'
+        citations = re.findall(citation_pattern, answer_text)
+        
+        # Collect unique cited sources
+        cited_indices = set()
+        for citation in citations:
+            nums = [int(n.strip()) for n in citation.split(',')]
+            cited_indices.update(nums)
+        
+        # Build sources list from actual citations
+        for idx in sorted(cited_indices):
+            if idx in citation_map:
+                sources.append(citation_map[idx])
+        
+        # Clean text: Remove [Nguồn X: ...] patterns but keep [1], [2]
+        cleaned_text = re.sub(
+            r'\[(?:Nguồn|Source)\s*\d+:\s*[^\]]+\]',
+            '',
+            answer_text
+        ).strip()
+        
+        # ✅ Remove "NGUỒN THAM KHẢO" section if exists (AI sometimes adds it)
+        cleaned_text = re.sub(
+            r'━+\s*📚\s*NGUỒN THAM KHẢO\s*━+.*$',
+            '',
+            cleaned_text,
+            flags=re.DOTALL | re.MULTILINE
+        ).strip()
+        
+        # If no explicit citations found, use top 3 chunks as sources
+        if not sources and retrieved_chunks:
+            for idx in range(min(3, len(retrieved_chunks))):
+                if idx + 1 in citation_map:
+                    sources.append(citation_map[idx + 1])
+        
+        logger.info(f"📚 Extracted {len(sources)} sources from response")
+        return cleaned_text, sources
+
+    # ============================================================================
+    # Main RAG Pipeline
+    # ============================================================================
     async def query_documents(
         self,
         db: Session,
@@ -32,7 +111,7 @@ class RAGServiceGemini:
         document_ids: List[int],
         max_results: int = 5
     ) -> Dict[str, Any]:
-        """Main RAG pipeline with optimized prompts"""
+        """Main RAG pipeline with source extraction"""
         start_time = time.time()
 
         try:
@@ -72,36 +151,35 @@ class RAGServiceGemini:
                     'processing_time_ms': int((time.time() - start_time) * 1000)
                 }
             
-            # Step 3: Build context với format mới ✅
+            # Step 3: Build context with new format
             logger.info(f"📝 Building context from {len(matches)} chunks...")
             context = format_context(matches, doc_map)
             
-            # Step 4: Generate answer với prompt template mới ✅
+            # Step 4: Generate answer with prompt template
             logger.info(f"🤖 Generating answer with optimized prompt...")
-            prompt = RAG_QUERY_TEMPLATE.format(
-                context=context,
-                question=query_text
-            )
-            
-            # Call Gemini với system instruction
-            answer = await self.gemini_service.generate_answer(
+            raw_answer = await self.gemini_service.generate_answer(
                 query=query_text,
                 context=context,
                 system_instruction=SYSTEM_INSTRUCTION
             )
             
-            # Step 5: Prepare sources
-            sources = self._format_sources(matches, doc_map)
+            # ✅ Step 5: Extract sources from response
+            logger.info(f"🔍 Extracting sources from AI response...")
+            cleaned_answer, sources = self.extract_sources_from_response(
+                raw_answer,
+                matches,
+                doc_map
+            )
             
             # Step 6: Calculate confidence
             avg_similarity = sum(m['score'] for m in matches) / len(matches)
             confidence_score = min(avg_similarity * 1.5, 1.0)
             
-            # Step 7: Save query
+            # Step 7: Save query with document associations
             query_record = QueryModel(
                 user_id=user.id,
                 query_text=query_text,
-                response_text=answer,
+                response_text=cleaned_answer,  # ✅ Save cleaned version
                 sources=[{
                     'document_id': m['document_id'],
                     'chunk_index': m['chunk_index'],  
@@ -109,20 +187,21 @@ class RAGServiceGemini:
                 } for m in matches], 
                 execution_time=int((time.time() - start_time) * 1000)
             )
-            # 👇👇 QUAN TRỌNG: THÊM DÒNG NÀY ĐỂ LƯU MỐI QUAN HỆ VÀO BẢNG TRUNG GIAN 👇👇
-            query_record.documents = documents 
-            # 👆👆 Dòng này sẽ bảo SQLAlchemy tự động ghi vào bảng query_document_association
+            
+            # ✅ Associate documents with query for relationship tracking
+            query_record.documents = documents
+            
             db.add(query_record)
             db.commit()
             db.refresh(query_record)
             
             processing_time = int((time.time() - start_time) * 1000)
-            logger.info(f"✅ Query completed in {processing_time}ms")
+            logger.info(f"✅ Query completed in {processing_time}ms with {len(sources)} sources")
             
             return {
                 'query_id': query_record.id,
-                'answer': answer,
-                'sources': sources,
+                'answer': cleaned_answer,  # ✅ Return cleaned answer
+                'sources': sources,  # ✅ Return extracted sources
                 'confidence_score': round(confidence_score, 2),
                 'processing_time_ms': processing_time
             }
@@ -135,31 +214,9 @@ class RAGServiceGemini:
     # 🔧 Private helper methods
     # ==============================================================
 
-    def _build_context(self, matches: List[Dict], doc_map: Dict[int, Document]) -> str:
-        """Build context string from matched chunks."""
-        context_parts = []
-
-        for idx, match in enumerate(matches[:3]):  # Top 3 chunks only
-            doc_id = match['document_id']
-            doc_title = doc_map.get(doc_id).title if doc_id in doc_map else "Unknown"
-            text = match['text']
-
-            context_parts.append(
-                f"[Nguồn {idx+1}: {doc_title}]\n{text}\n"
-            )
-
-        return "\n".join(context_parts)
-
     def _format_sources(self, matches: List[Dict], doc_map: Dict[int, Document]) -> List[Dict]:
         """
-        ✅ Format metadata theo đúng SourceSchema
-        
-        Required fields:
-        - document_id: int
-        - document_title: Optional[str]
-        - page_number: Optional[int]
-        - similarity_score: Optional[float]
-        - text: Optional[str]
+        Format metadata for sources (legacy format - use extract_sources_from_response instead)
         """
         sources = []
 
@@ -168,24 +225,14 @@ class RAGServiceGemini:
             doc = doc_map.get(doc_id)
 
             sources.append({
-                'document_id': doc_id,
+                'document_id': str(doc_id),
                 'document_title': doc.title if doc else "Unknown Document",
-                'page_number': match.get('page_number'),  # Có thể None
+                'page_number': match.get('page_number'),
                 'similarity_score': round(match['score'], 3),
                 'text': match['text'][:300] + "..." if len(match['text']) > 300 else match['text']
             })
 
         return sources
-
-    def _generate_no_result_response(self, query: str) -> str:
-        """Generate helpful fallback message."""
-        return (
-            f"Xin lỗi, tôi không tìm thấy thông tin liên quan đến câu hỏi \"{query}\" trong các tài liệu đã chọn.\n\n"
-            "Gợi ý:\n"
-            "- Thử diễn đạt câu hỏi theo cách khác\n"
-            "- Kiểm tra xem đã chọn đúng tài liệu chưa\n"
-            "- Upload thêm tài liệu có nội dung liên quan"
-        )
 
     def get_user_query_history(
         self,
@@ -194,7 +241,7 @@ class RAGServiceGemini:
         skip: int = 0,
         limit: int = 50
     ) -> List[QueryModel]:
-
+        """Get user's query history"""
         return (
             db.query(QueryModel)
             .filter(QueryModel.user_id == user.id)
