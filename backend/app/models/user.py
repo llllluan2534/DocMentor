@@ -12,11 +12,6 @@ class UserRole(str, enum.Enum):
     LECTURER = "lecturer"
     ADMIN = "admin"
 
-class AuthProvider(str, enum.Enum):
-    EMAIL = "EMAIL"      
-    GOOGLE = "GOOGLE"  
-    FACEBOOK = "FACEBOOK"
-
 class User(Base):
     __tablename__ = "users"
 
@@ -26,12 +21,7 @@ class User(Base):
     full_name = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)  # ✨ NEW: Profile picture
     role = Column(Enum(UserRole), default=UserRole.STUDENT, nullable=False)
-    auth_provider = Column(
-        Enum(AuthProvider), 
-        default=AuthProvider.EMAIL, 
-        server_default="EMAIL",
-        nullable=False
-    )
+    auth_provider = Column(String, default="email", server_default="email", nullable=False)
     google_id = Column(String, unique=True, nullable=True)  # ✨ NEW: Google user ID
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

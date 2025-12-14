@@ -14,7 +14,7 @@ from app.schemas.user import (
 from app.services.auth_service import AuthService
 from app.utils.security import create_access_token, get_current_user  # ← Import từ utils.security
 from app.services.google_auth import google_auth_service
-from app.models.user import User, AuthProvider
+from app.models.user import User
 from datetime import timedelta
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -45,34 +45,30 @@ async def google_auth(
         is_new_user = False
         
         if not user:
-            # Create new user
+            # ✅ SỬA: Dùng string "google" thay vì AuthProvider.GOOGLE
             user = User(
                 email=google_info["email"],
                 full_name=google_info["name"],
                 avatar_url=google_info["picture"],
-                auth_provider=AuthProvider.GOOGLE,
+                auth_provider="google",  # ✅ lowercase string
                 google_id=google_info["sub"],
-                hashed_password=None  # No password for OAuth users
+                hashed_password=None
             )
             db.add(user)
             db.commit()
             db.refresh(user)
             is_new_user = True
         else:
-            # Update existing user's info if needed
-            if user.auth_provider == AuthProvider.EMAIL:
-                # Link Google account to existing email account
-                user.auth_provider = AuthProvider.GOOGLE
+            if user.auth_provider == "email":
+                user.auth_provider = "google"  # ✅ lowercase string
                 user.google_id = google_info["sub"]
             
-            # Update profile picture if changed
             if google_info["picture"] != user.avatar_url:
                 user.avatar_url = google_info["picture"]
             
             db.commit()
             db.refresh(user)
         
-        # Create access token
         access_token = create_access_token(
             data={"sub": user.email, "user_id": user.id}
         )
@@ -87,6 +83,7 @@ async def google_auth(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"❌ Error: {str(e)}")  # ✅ Thêm log để debug
         raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
 
 
