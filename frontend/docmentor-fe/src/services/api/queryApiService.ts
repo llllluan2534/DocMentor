@@ -88,16 +88,26 @@ class QueryApiService {
       headers: {
         "Content-Type": "application/json",
       },
-      withCredentials: true,
+      withCredentials: false,
     });
 
     // Request Interceptor
     this.axiosInstance.interceptors.request.use(
       (config) => {
         const token = this.getAuthToken();
+
+        console.log("🔐 Query API Request:", {
+          url: config.url,
+          hasToken: !!token,
+          tokenPrefix: token ? token.substring(0, 20) + "..." : "none",
+        });
+
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
+        } else {
+          console.warn("⚠️ No auth token found for query!");
         }
+
         return config;
       },
       (error) => {
@@ -117,12 +127,19 @@ class QueryApiService {
             (error.response?.data as any)?.detail || error.response?.statusText,
         };
 
-        console.error("API Error:", apiError);
+        console.error("❌ Query API Error:", {
+          ...apiError,
+          url: error.config?.url,
+          headers: error.config?.headers,
+        });
 
         if (error.response?.status === 401) {
-          console.warn("Unauthorized: redirecting to login");
-          localStorage.removeItem("auth_token");
-          sessionStorage.removeItem("auth_token");
+          console.warn("🔒 Unauthorized: Token invalid or expired");
+          console.log("Current token:", this.getAuthToken()?.substring(0, 20));
+
+          // Don't auto-redirect on 401 - let component handle it
+          // localStorage.removeItem("auth_token");
+          // sessionStorage.removeItem("auth_token");
         }
 
         return Promise.reject(apiError);

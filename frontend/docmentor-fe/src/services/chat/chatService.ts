@@ -13,17 +13,57 @@ const API_BASE_URL =
 const conversationApi = axios.create({
   baseURL: `${API_BASE_URL}/conversations`,
   headers: { "Content-Type": "application/json" },
-  withCredentials: true,
+  withCredentials: false,
 });
 
-conversationApi.interceptors.request.use((config) => {
-  const token =
-    localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+conversationApi.interceptors.request.use(
+  (config) => {
+    const token =
+      localStorage.getItem("auth_token") ||
+      sessionStorage.getItem("auth_token");
+
+    console.log("🔐 Conversation API Request:", {
+      url: config.url,
+      hasToken: !!token,
+      tokenPrefix: token ? token.substring(0, 20) + "..." : "none",
+    });
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    } else {
+      console.warn("⚠️ No auth token found!");
+    }
+
+    return config;
+  },
+  (error) => {
+    console.error("❌ Request interceptor error:", error);
+    return Promise.reject(error);
   }
-  return config;
-});
+);
+
+conversationApi.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error("❌ Conversation API Error:", {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      url: error.config?.url,
+    });
+
+    // Handle 401 Unauthorized
+    if (error.response?.status === 401) {
+      console.error("🔒 Unauthorized - Token may be invalid or expired");
+      console.log(
+        "Current token:",
+        localStorage.getItem("auth_token")?.substring(0, 20)
+      );
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 // ============================================================
 // HELPER FUNCTIONS
