@@ -7,10 +7,11 @@ import { useAuth } from "../../app/providers/AuthProvider";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth(); // ✨ NEW: loginWithGoogle
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>("");
 
+  // Traditional email/password login
   const handleLogin = async (data: {
     email: string;
     password: string;
@@ -21,8 +22,6 @@ const LoginPage: React.FC = () => {
       setError("");
 
       await login(data.email, data.password, data.rememberMe);
-
-      // Navigate to dashboard on success
       navigate("/user");
     } catch (err: any) {
       setError(err.message || "Đăng nhập thất bại. Vui lòng thử lại.");
@@ -31,27 +30,39 @@ const LoginPage: React.FC = () => {
     }
   };
 
+  // ✨ NEW: Google OAuth login handler
+  const handleGoogleSuccess = async (googleData: any) => {
+    try {
+      setIsLoading(true);
+      setError("");
+
+      await loginWithGoogle(googleData);
+
+      // Show welcome message for new users
+      if (googleData.is_new_user) {
+        console.log("🎉 Welcome new user!");
+        // You can show a toast notification here
+      }
+
+      navigate("/user");
+    } catch (err: any) {
+      setError(err.message || "Google login failed");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <AuthLayout
-      title="Chào Mừng Trở Lại"
+      title="Đăng nhập"
       subtitle="Đăng nhập vào tài khoản của bạn để tiếp tục"
     >
-      <LoginForm onSubmit={handleLogin} isLoading={isLoading} error={error} />
-
-      {/* Demo Accounts Info */}
-      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-        <p className="text-sm font-semibold text-blue-800 mb-2">
-          Tài khoản demo:
-        </p>
-        <div className="space-y-1 text-xs text-blue-700">
-          <p>
-            <strong>User:</strong> user@example.com / 123456
-          </p>
-          <p>
-            <strong>Admin:</strong> admin@example.com / admin123
-          </p>
-        </div>
-      </div>
+      <LoginForm
+        onSubmit={handleLogin}
+        onGoogleSuccess={handleGoogleSuccess} // ✨ NEW
+        isLoading={isLoading}
+        error={error}
+      />
     </AuthLayout>
   );
 };

@@ -2,7 +2,7 @@
 import React from "react";
 import Header from "../../components/layout/Header";
 import Footer from "../../components/layout/Footer";
-import HeroChat from "../../features/chat/components/HeroChat";
+//import HeroChat from "../../features/chat/components/HeroChat";
 import Features from "../../features/homepage/components/Features";
 //import Statistics from "../../features/homepage/components/Statistics";
 import HowItWorks from "../../features/homepage/components/HowItWorks";
@@ -18,9 +18,6 @@ const HomePage: React.FC = () => {
 
       {/* Main content full width */}
       <main className="flex-1 w-full">
-        <section className="w-full">
-          <HeroChat />
-        </section>
 
         <section className="w-full">
           <Features />

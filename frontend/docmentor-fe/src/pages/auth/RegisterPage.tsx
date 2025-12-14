@@ -20,7 +20,7 @@ const RegisterPage: React.FC = () => {
   }) => {
     try {
       setIsLoading(true);
-      setError(""); // ⚠️ ĐÃ SỬA: Loại bỏ biến 'response' không cần thiết
+      setError(""); 
 
       await register({
         fullName: data.fullName,
@@ -39,14 +39,21 @@ const RegisterPage: React.FC = () => {
     }
   };
 
+  const handleGoogleSuccess = () => {
+    navigate("/login", {
+      state: { message: "Đăng ký thành công! Vui lòng đăng nhập." },
+    });
+  };
+
   return (
     <AuthLayout
-      title="Create Account"
+      title="Đăng ký"
       subtitle="Sign up to get started with DocMentor"
     >
            {" "}
       <RegisterForm
         onSubmit={handleRegister}
+        onGoogleSuccess={handleGoogleSuccess}
         isLoading={isLoading}
         error={error}
       />

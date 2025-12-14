@@ -1,3 +1,4 @@
+// src/app/providers/AuthProvider.tsx
 import React, {
   createContext,
   useContext,
@@ -9,6 +10,7 @@ import {
   realAuthService,
   User,
   RegisterData,
+  GoogleAuthResponse,
 } from "../../services/auth/authService";
 
 interface AuthContextType {
@@ -20,6 +22,7 @@ interface AuthContextType {
     password: string,
     rememberMe: boolean
   ) => Promise<void>;
+  loginWithGoogle: (googleData: GoogleAuthResponse) => Promise<void>; // ✨ NEW
   logout: () => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
 }
@@ -46,12 +49,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        // ✅ FIX: CHỈ kiểm tra storage, KHÔNG gọi API
         const token = realAuthService.getToken();
         const currentUser = await realAuthService.getCurrentUser();
 
         if (token && currentUser) {
-          console.log("✅ User authenticated from storage:", currentUser.email);
+          console.log("✅ User authenticated:", currentUser.email);
           setUser(currentUser);
           setIsAuthenticated(true);
         } else {
@@ -68,8 +70,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
 
     initAuth();
-  }, []); // ✅ Chạy 1 lần khi mount
+  }, []);
 
+  // Traditional email/password login
   const login = async (
     email: string,
     password: string,
@@ -81,6 +84,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setIsAuthenticated(true);
     } catch (error: any) {
       console.error("❌ Login error:", error);
+      throw error;
+    }
+  };
+
+  // ✨ NEW: Google OAuth login
+  const loginWithGoogle = async (googleData: GoogleAuthResponse) => {
+    try {
+      // Data is already processed by authService.loginWithGoogle()
+      // which is called before this function
+      setUser(googleData.user);
+      setIsAuthenticated(true);
+
+      console.log("✅ Google auth state updated:", {
+        email: googleData.user.email,
+        isNewUser: googleData.is_new_user,
+      });
+    } catch (error: any) {
+      console.error("❌ Google login error:", error);
       throw error;
     }
   };
@@ -107,7 +128,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, isAuthenticated, isLoading, login, logout, register }}
+      value={{
+        user,
+        isAuthenticated,
+        isLoading,
+        login,
+        loginWithGoogle, // ✨ NEW
+        logout,
+        register,
+      }}
     >
       {children}
     </AuthContext.Provider>
