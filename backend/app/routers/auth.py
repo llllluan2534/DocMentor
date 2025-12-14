@@ -10,20 +10,16 @@ from app.schemas.user import (
     SocialAuthResponse,
 )
 
-from app.services.auth_service import (
-    create_user,
-    authenticate_user,
-    create_access_token,
-)
-
+# ✅ SỬA: Import class và các hàm đúng
+from app.services.auth_service import AuthService
+from app.utils.security import create_access_token, get_current_user  # ← Import từ utils.security
 from app.services.google_auth import google_auth_service
 from app.models.user import User, AuthProvider
 from datetime import timedelta
-import os
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-# ✨ NEW: Google OAuth Login/Register
+# ✨ Google OAuth Login/Register
 @router.post("/google", response_model=SocialAuthResponse)
 async def google_auth(
     request: GoogleAuthRequest,
@@ -94,26 +90,17 @@ async def google_auth(
         raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
 
 
-# Existing endpoints
+# ✅ SỬA: Sử dụng AuthService.register_user()
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(user: UserCreate, db: Session = Depends(get_db)):
     """Traditional email/password registration"""
-    return create_user(db, user)
+    return AuthService.register_user(db, user)
 
+# ✅ SỬA: Sử dụng AuthService.authenticate_user()
 @router.post("/login", response_model=Token)
 async def login(user: UserLogin, db: Session = Depends(get_db)):
     """Traditional email/password login"""
-    authenticated_user = authenticate_user(db, user.email, user.password)
-    if not authenticated_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email hoặc mật khẩu không đúng"
-        )
-    
-    access_token = create_access_token(
-        data={"sub": authenticated_user.email, "user_id": authenticated_user.id}
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return AuthService.authenticate_user(db, user.email, user.password)
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
