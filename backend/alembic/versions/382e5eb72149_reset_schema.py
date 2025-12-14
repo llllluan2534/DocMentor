@@ -31,7 +31,7 @@ def upgrade() -> None:
             sa.Column('full_name', sa.String(), nullable=True),
             sa.Column('avatar_url', sa.String(), nullable=True),  # ✨ NEW: For profile pictures
             sa.Column('role', sa.Enum('STUDENT', 'LECTURER', 'ADMIN', name='userrole'), nullable=False),
-            sa.Column('auth_provider', sa.String(), nullable=False, server_default='email'),  # ✨ NEW: 'email' or 'google'
+            sa.Column('auth_provider', sa.String(), nullable=False, server_default='EMAIL'),  # ✨ NEW: 'email' or 'google'
             sa.Column('google_id', sa.String(), nullable=True),  # ✨ NEW: Google user ID
             sa.Column('created_at', sa.DateTime(), nullable=False),
             sa.Column('updated_at', sa.DateTime(), nullable=True)

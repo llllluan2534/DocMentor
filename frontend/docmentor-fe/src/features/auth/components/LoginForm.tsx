@@ -19,8 +19,37 @@ const GoogleOAuthButton: React.FC<{
   onError: (error: string) => void;
   isLoading: boolean;
 }> = ({ onSuccess, onError, isLoading }) => {
+  // ✅ SỬA: Move handleCredentialResponse ra ngoài useEffect
+  const handleCredentialResponse = React.useCallback(
+    async (response: any) => {
+      try {
+        const result = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"}/auth/google`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ credential: response.credential }),
+          }
+        );
+
+        const data = await result.json();
+
+        if (!result.ok) {
+          throw new Error(data.detail || "Google authentication failed");
+        }
+
+        onSuccess(data);
+      } catch (error: any) {
+        onError(error.message);
+      }
+    },
+    [onSuccess, onError]
+  );
+
   useEffect(() => {
-    // Load Google Identity Services script
+    console.log("🔑 Client ID:", import.meta.env.VITE_GOOGLE_CLIENT_ID);
+    console.log("🌍 Origin:", window.location.origin);
+
     const script = document.createElement("script");
     script.src = "https://accounts.google.com/gsi/client";
     script.async = true;
@@ -28,12 +57,12 @@ const GoogleOAuthButton: React.FC<{
     document.body.appendChild(script);
 
     script.onload = () => {
-      // Initialize Google Sign-In
       if (window.google) {
         window.google.accounts.id.initialize({
           client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
           callback: handleCredentialResponse,
         });
+        console.log("✅ Google Sign-In initialized");
       }
     };
 
@@ -42,30 +71,7 @@ const GoogleOAuthButton: React.FC<{
         document.body.removeChild(script);
       }
     };
-  }, []);
-
-  const handleCredentialResponse = async (response: any) => {
-    try {
-      const result = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"}/auth/google`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ credential: response.credential }),
-        }
-      );
-
-      const data = await result.json();
-
-      if (!result.ok) {
-        throw new Error(data.detail || "Google authentication failed");
-      }
-
-      onSuccess(data);
-    } catch (error: any) {
-      onError(error.message);
-    }
-  };
+  }, [handleCredentialResponse]);
 
   const handleGoogleLogin = () => {
     if (window.google) {
