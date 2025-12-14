@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
+    # Google OAuth2 Credentials
+    GOOGLE_CLIENT_ID: str
+    
     # GEMINI API
     GEMINI_API_KEY: str
     

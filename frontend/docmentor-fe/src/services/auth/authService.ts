@@ -8,6 +8,7 @@ interface User {
   name: string;
   role: "user" | "admin";
   avatar?: string;
+  authProvider?: "email" | "google"; // ✨ NEW
 }
 
 interface LoginResponse {
@@ -15,6 +16,14 @@ interface LoginResponse {
   user: User;
   token: string;
   message?: string;
+}
+
+// ✨ NEW: Google Auth Response
+interface GoogleAuthResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
+  is_new_user: boolean;
 }
 
 interface RegisterData {
@@ -46,12 +55,45 @@ class RealAuthService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  // ✨ NEW: Google OAuth Login
+  async loginWithGoogle(credential: string): Promise<GoogleAuthResponse> {
+    console.log("🔑 Google OAuth login attempt");
+
+    try {
+      await this.delay(500);
+      const response = await api.post("/auth/google", { credential });
+
+      if (!response.data.access_token) {
+        throw new Error("Google authentication failed");
+      }
+
+      const { access_token, user, is_new_user } = response.data;
+
+      // Always save to localStorage for OAuth (better UX)
+      localStorage.setItem("auth_token", access_token);
+      localStorage.setItem("user", JSON.stringify(user));
+
+      console.log("✅ Google login successful:", {
+        user: user.email,
+        isNewUser: is_new_user,
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error("❌ Google login error:", error);
+      throw new Error(
+        error.response?.data?.detail || "Google authentication failed"
+      );
+    }
+  }
+
+  // Traditional email/password login
   async login(
     email: string,
     password: string,
     rememberMe: boolean
   ): Promise<LoginResponse> {
-    console.log("🔑 Real login attempt:", { email, rememberMe });
+    console.log("🔑 Email/password login attempt:", { email, rememberMe });
 
     try {
       await this.delay(500);
@@ -68,26 +110,26 @@ class RealAuthService {
       storage.setItem("auth_token", token);
       storage.setItem("user", JSON.stringify(user));
 
-      console.log("✅ Real login successful:", {
+      console.log("✅ Email login successful:", {
         user: user.email,
         role: user.role,
       });
 
       return { success: true, user, token, message };
     } catch (error: any) {
-      console.error("❌ Real login error:", error);
+      console.error("❌ Email login error:", error);
       throw new Error(error.response?.data?.message || "Lỗi đăng nhập");
     }
   }
 
   async register(data: RegisterData): Promise<void> {
-    console.log("📝 Real registration attempt:", data.email);
+    console.log("📝 Registration attempt:", data.email);
     try {
       await this.delay(500);
       await api.post("/auth/register", data);
-      console.log("✅ Real registration successful");
+      console.log("✅ Registration successful");
     } catch (error: any) {
-      console.error("❌ Real registration error:", error);
+      console.error("❌ Registration error:", error);
       throw new Error(
         error.response?.data?.detail?.[0]?.msg ||
           error.response?.data?.detail ||
@@ -97,12 +139,12 @@ class RealAuthService {
   }
 
   async logout(): Promise<void> {
-    console.log("🚪 Real logging out...");
+    console.log("🚪 Logging out...");
     localStorage.removeItem("auth_token");
     localStorage.removeItem("user");
     sessionStorage.removeItem("auth_token");
     sessionStorage.removeItem("user");
-    console.log("✅ Real logout complete");
+    console.log("✅ Logout complete");
   }
 
   async isAuthenticated(): Promise<boolean> {
@@ -110,7 +152,7 @@ class RealAuthService {
     const user = await this.getCurrentUser();
 
     const isAuth = !!(token && user);
-    console.log("🔍 Auth check (local only):", {
+    console.log("🔍 Auth check:", {
       hasToken: !!token,
       hasUser: !!user,
       isAuthenticated: isAuth,
@@ -127,13 +169,13 @@ class RealAuthService {
 
     try {
       await api.get("/auth/me");
-      console.log("✅ Token verified with backend");
+      console.log("✅ Token verified");
       return true;
     } catch (error: any) {
       console.error("❌ Token verification failed:", error.message);
 
       if (error.response?.status === 401) {
-        console.log("🔒 Token invalid (401), logging out");
+        console.log("🔒 Token invalid, logging out");
         await this.logout();
         return false;
       }
@@ -152,7 +194,7 @@ class RealAuthService {
 
     try {
       const user = JSON.parse(userStr);
-      console.log("👤 Current user from storage:", user.email);
+      console.log("👤 Current user:", user.email);
       return user;
     } catch (error) {
       console.error("❌ Error parsing user data:", error);
@@ -168,4 +210,4 @@ class RealAuthService {
 }
 
 export const realAuthService = new RealAuthService();
-export type { User, LoginResponse, RegisterData };
+export type { User, LoginResponse, RegisterData, GoogleAuthResponse };
