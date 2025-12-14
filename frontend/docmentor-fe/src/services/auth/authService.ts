@@ -69,13 +69,24 @@ class RealAuthService {
 
       const { access_token, user, is_new_user } = response.data;
 
-      // Always save to localStorage for OAuth (better UX)
+      // ✅ QUAN TRỌNG: Lưu token với key đúng
       localStorage.setItem("auth_token", access_token);
       localStorage.setItem("user", JSON.stringify(user));
+
+      // ✅ THÊM: Clear sessionStorage để tránh conflict
+      sessionStorage.removeItem("auth_token");
+      sessionStorage.removeItem("user");
 
       console.log("✅ Google login successful:", {
         user: user.email,
         isNewUser: is_new_user,
+        tokenPrefix: access_token.substring(0, 20) + "...", // Log token prefix for debugging
+      });
+
+      // ✅ THÊM: Verify token được lưu
+      console.log("🔍 Token stored:", {
+        localStorage: !!localStorage.getItem("auth_token"),
+        sessionStorage: !!sessionStorage.getItem("auth_token"),
       });
 
       return response.data;

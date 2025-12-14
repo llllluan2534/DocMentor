@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import AuthLayout from "../../components/layout/AuthLayout";
 import LoginForm from "../../features/auth/components/LoginForm";
 import { useAuth } from "../../app/providers/AuthProvider";
+import { realAuthService } from "@/services/auth/authService";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -36,13 +37,9 @@ const LoginPage: React.FC = () => {
       setIsLoading(true);
       setError("");
 
-      await loginWithGoogle(googleData);
+      await realAuthService.loginWithGoogle(googleData.credential);
 
-      // Show welcome message for new users
-      if (googleData.is_new_user) {
-        console.log("🎉 Welcome new user!");
-        // You can show a toast notification here
-      }
+      console.log("Token after login:", localStorage.getItem("auth_token"));
 
       navigate("/user");
     } catch (err: any) {
