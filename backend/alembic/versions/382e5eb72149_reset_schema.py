@@ -54,7 +54,7 @@ def upgrade() -> None:
         
         # Add auth_provider with default 'email'
         if 'auth_provider' not in columns:
-            op.add_column('users', sa.Column('auth_provider', sa.String(), nullable=False, server_default='email'))
+            op.add_column('users', sa.Column('auth_provider', sa.String(), nullable=False, server_default='EMAIL'))
         
         # Add google_id
         if 'google_id' not in columns:
