@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { ChatMessage } from "@/types/chat.types";
 import {
   FiCopy,
   FiShare2,
@@ -14,11 +13,38 @@ import {
   FiExternalLink,
 } from "react-icons/fi";
 
+// Types
+interface SourceReference {
+  documentId: string;
+  documentTitle: string;
+  pageNumber: number | null;
+  similarityScore?: number;
+}
+
+interface ChatMessage {
+  id: string;
+  text: string;
+  sender: "user" | "ai";
+  timestamp: string;
+  status?: "sent" | "error" | "sending" | "loading";
+  attachment?: {
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+  };
+  attachedDocuments?: Array<{
+    id: string;
+    title: string;
+  }>;
+  sources?: SourceReference[];
+}
+
 interface MessageBubbleProps {
   message: ChatMessage;
   onEditMessage?: (messageId: string, newText: string) => void;
 }
 
+// Utility functions
 const formatBytes = (bytes: number, decimals = 2) => {
   if (bytes === 0) return "0 Bytes";
   const k = 1024;
@@ -49,16 +75,508 @@ const getFileIcon = (fileName: string, isUserBubble: boolean) => {
   );
 };
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({
+// Markdown Parser Component
+const MarkdownRenderer: React.FC<{
+  content: string;
+  isUser: boolean;
+  sources?: SourceReference[];
+}> = ({ content, isUser, sources = [] }) => {
+  const renderContent = () => {
+    const lines = content.split("\n");
+    const elements: React.ReactNode[] = [];
+    let i = 0;
+    let elementCounter = 0; // ✅ Unique key counter
+
+    while (i < lines.length) {
+      const line = lines[i];
+      const currentKey = `element-${elementCounter++}`; // ✅ Generate unique key
+
+      // Headers
+      if (line.startsWith("### ")) {
+        elements.push(
+          <h3
+            key={currentKey}
+            className={`text-lg font-bold mt-4 mb-2 ${
+              isUser ? "text-white" : "text-gray-900 dark:text-gray-100"
+            }`}
+          >
+            {parseInlineFormatting(line.substring(4), isUser, sources)}
+          </h3>
+        );
+        i++;
+        continue;
+      }
+
+      if (line.startsWith("## ")) {
+        elements.push(
+          <h2
+            key={currentKey}
+            className={`text-xl font-bold mt-5 mb-3 ${
+              isUser ? "text-white" : "text-gray-900 dark:text-gray-100"
+            }`}
+          >
+            {parseInlineFormatting(line.substring(3), isUser, sources)}
+          </h2>
+        );
+        i++;
+        continue;
+      }
+
+      // Code blocks
+      if (line.startsWith("```")) {
+        const codeLines: string[] = [];
+        const lang = line.substring(3).trim();
+        const codeStartKey = currentKey;
+        i++;
+        while (i < lines.length && !lines[i].startsWith("```")) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+        elements.push(
+          <div key={codeStartKey} className="my-4">
+            <div
+              className={`text-xs px-3 py-1 rounded-t-lg font-mono ${
+                isUser
+                  ? "bg-black/30 text-blue-200"
+                  : "bg-gray-800 text-gray-300"
+              }`}
+            >
+              {lang || "code"}
+            </div>
+            <pre
+              className={`p-4 rounded-b-lg overflow-x-auto ${
+                isUser ? "bg-black/40 text-white" : "bg-gray-900 text-gray-100"
+              }`}
+            >
+              <code className="font-mono text-sm">{codeLines.join("\n")}</code>
+            </pre>
+          </div>
+        );
+        i++;
+        continue;
+      }
+
+      // Tables
+      if (line.includes("|") && line.trim().startsWith("|")) {
+        const tableLines: string[] = [];
+        const tableStartKey = currentKey;
+        while (i < lines.length && lines[i].includes("|")) {
+          tableLines.push(lines[i]);
+          i++;
+        }
+
+        const rows = tableLines.map((l) =>
+          l
+            .split("|")
+            .map((cell) => cell.trim())
+            .filter(Boolean)
+        );
+
+        if (rows.length > 0) {
+          elements.push(
+            <div key={tableStartKey} className="my-4 overflow-x-auto">
+              <table
+                className={`min-w-full border-collapse ${
+                  isUser
+                    ? "border border-white/30"
+                    : "border border-gray-300 dark:border-gray-600"
+                }`}
+              >
+                <thead
+                  className={
+                    isUser ? "bg-white/20" : "bg-gray-100 dark:bg-gray-700"
+                  }
+                >
+                  <tr>
+                    {rows[0].map((header, idx) => (
+                      <th
+                        key={idx}
+                        className={`px-4 py-2 text-left text-sm font-semibold border ${
+                          isUser
+                            ? "border-white/30 text-white"
+                            : "border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                        }`}
+                      >
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.slice(2).map((row, rowIdx) => (
+                    <tr
+                      key={rowIdx}
+                      className={
+                        isUser
+                          ? "hover:bg-white/10"
+                          : "hover:bg-gray-50 dark:hover:bg-gray-800"
+                      }
+                    >
+                      {row.map((cell, cellIdx) => (
+                        <td
+                          key={cellIdx}
+                          className={`px-4 py-2 text-sm border ${
+                            isUser
+                              ? "border-white/30 text-white/90"
+                              : "border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
+                          }`}
+                        >
+                          {parseInlineFormatting(cell, isUser)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        continue;
+      }
+
+      // Unordered lists
+      if (line.match(/^[•\-\*]\s+/)) {
+        const listItems: string[] = [];
+        const listStartKey = currentKey;
+        while (i < lines.length && lines[i].match(/^[•\-\*]\s+/)) {
+          listItems.push(lines[i].replace(/^[•\-\*]\s+/, ""));
+          i++;
+        }
+        elements.push(
+          <ul
+            key={listStartKey}
+            className={`my-3 space-y-2 ${
+              isUser ? "text-white/95" : "text-gray-800 dark:text-gray-200"
+            }`}
+          >
+            {listItems.map((item, idx) => (
+              <li
+                key={`${listStartKey}-item-${idx}`}
+                className="flex items-start gap-2"
+              >
+                <span
+                  className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    isUser ? "bg-white/70" : "bg-blue-500"
+                  }`}
+                />
+                <span className="text-[15px] leading-relaxed">
+                  {parseInlineFormatting(item, isUser, sources)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        );
+        continue;
+      }
+
+      // Ordered lists
+      if (line.match(/^\d+\.\s+/)) {
+        const listItems: string[] = [];
+        const listStartKey = currentKey;
+        while (i < lines.length && lines[i].match(/^\d+\.\s+/)) {
+          listItems.push(lines[i].replace(/^\d+\.\s+/, ""));
+          i++;
+        }
+        elements.push(
+          <ol
+            key={listStartKey}
+            className={`my-3 space-y-2 ${
+              isUser ? "text-white/95" : "text-gray-800 dark:text-gray-200"
+            }`}
+          >
+            {listItems.map((item, idx) => (
+              <li
+                key={`${listStartKey}-item-${idx}`}
+                className="flex items-start gap-3"
+              >
+                <span
+                  className={`font-semibold flex-shrink-0 ${
+                    isUser
+                      ? "text-white/80"
+                      : "text-blue-600 dark:text-blue-400"
+                  }`}
+                >
+                  {idx + 1}.
+                </span>
+                <span className="text-[15px] leading-relaxed">
+                  {parseInlineFormatting(item, isUser, sources)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        );
+        continue;
+      }
+
+      // Horizontal rules
+      if (line.match(/^━{3,}$/)) {
+        elements.push(
+          <hr
+            key={currentKey}
+            className={`my-4 border-t-2 ${
+              isUser
+                ? "border-white/30"
+                : "border-gray-300 dark:border-gray-600"
+            }`}
+          />
+        );
+        i++;
+        continue;
+      }
+
+      // Regular paragraphs
+      if (line.trim()) {
+        elements.push(
+          <p
+            key={currentKey}
+            className={`text-[15px] leading-relaxed mb-3 ${
+              isUser ? "text-white/95" : "text-gray-800 dark:text-gray-200"
+            }`}
+          >
+            {parseInlineFormatting(line, isUser, sources)}
+          </p>
+        );
+      }
+
+      i++;
+    }
+
+    return elements;
+  };
+
+  return <div className="space-y-1">{renderContent()}</div>;
+};
+
+// ✅ Enhanced inline formatting with tooltip support
+const parseInlineFormatting = (
+  text: string,
+  isUser: boolean,
+  sources: SourceReference[] = []
+) => {
+  const parts: React.ReactNode[] = [];
+  let currentText = "";
+  let i = 0;
+  let partCounter = 0;
+
+  while (i < text.length) {
+    // Bold text **text**
+    if (text.substring(i, i + 2) === "**") {
+      if (currentText) {
+        parts.push(<span key={`text-${partCounter++}`}>{currentText}</span>);
+        currentText = "";
+      }
+      i += 2;
+      let boldText = "";
+      while (i < text.length && text.substring(i, i + 2) !== "**") {
+        boldText += text[i];
+        i++;
+      }
+      parts.push(
+        <strong key={`bold-${partCounter++}`} className="font-semibold">
+          {boldText}
+        </strong>
+      );
+      i += 2;
+      continue;
+    }
+
+    // ✅ Citations [1], [2], [1, 2] with tooltip
+    if (text[i] === "[" && text.substring(i).match(/^\[\d+(?:,\s*\d+)*\]/)) {
+      if (currentText) {
+        parts.push(<span key={`text-${partCounter++}`}>{currentText}</span>);
+        currentText = "";
+      }
+      const match = text.substring(i).match(/^\[(\d+(?:,\s*\d+)*)\]/);
+      if (match) {
+        const citation = match[1];
+        const citationNumbers = citation
+          .split(",")
+          .map((n) => parseInt(n.trim()));
+
+        // Get source info for tooltip
+        const citationSources = citationNumbers
+          .map((num) => sources[num - 1])
+          .filter(Boolean);
+
+        parts.push(
+          <CitationBadge
+            key={`cite-${partCounter++}`}
+            citation={citation}
+            sources={citationSources}
+            isUser={isUser}
+          />
+        );
+        i += match[0].length;
+        continue;
+      }
+    }
+
+    currentText += text[i];
+    i++;
+  }
+
+  if (currentText) {
+    parts.push(<span key={`text-${partCounter++}`}>{currentText}</span>);
+  }
+
+  return parts;
+};
+
+// ✅ NEW: Citation Badge with Tooltip
+const CitationBadge: React.FC<{
+  citation: string;
+  sources: SourceReference[];
+  isUser: boolean;
+}> = ({ citation, sources, isUser }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  // Only show single number if it's just one citation
+  const displayText = citation.includes(",") ? citation : citation;
+
+  return (
+    <span
+      className="relative inline-block"
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <sup
+        className={`mx-0.5 px-1.5 py-0.5 text-xs font-medium rounded cursor-help transition-colors ${
+          isUser
+            ? "bg-white/30 text-white hover:bg-white/40"
+            : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/40"
+        }`}
+      >
+        {displayText}
+      </sup>
+
+      {/* ✅ Tooltip */}
+      {showTooltip && sources.length > 0 && (
+        <div
+          className="absolute z-50 p-3 mb-2 text-xs text-white -translate-x-1/2 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl pointer-events-none bottom-full left-1/2 w-72 dark:bg-gray-800"
+          style={{ animation: "fadeIn 0.2s ease-out" }}
+        >
+          <div className="space-y-2">
+            {sources.map((source, idx) => (
+              <div key={idx} className="flex items-start gap-2">
+                <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center bg-blue-500 rounded-full text-[10px] font-bold">
+                  {citation.split(",")[idx]?.trim() || idx + 1}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-white truncate">
+                    {source.documentTitle}
+                  </p>
+                  {source.pageNumber && (
+                    <p className="text-gray-400 text-[10px]">
+                      Trang {source.pageNumber}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Tooltip arrow */}
+          <div className="absolute -mt-px -translate-x-1/2 top-full left-1/2">
+            <div className="w-0 h-0 border-t-4 border-l-4 border-r-4 border-transparent border-t-gray-900 dark:border-t-gray-800"></div>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+};
+
+// Parse inline formatting (legacy - now uses enhanced version above)
+const parseInlineFormattingLegacy = (text: string, isUser: boolean) => {
+  const parts: React.ReactNode[] = [];
+  let currentText = "";
+  let i = 0;
+
+  while (i < text.length) {
+    // Bold text **text**
+    if (text.substring(i, i + 2) === "**") {
+      if (currentText) {
+        parts.push(currentText);
+        currentText = "";
+      }
+      i += 2;
+      let boldText = "";
+      while (i < text.length && text.substring(i, i + 2) !== "**") {
+        boldText += text[i];
+        i++;
+      }
+      parts.push(
+        <strong key={i} className="font-semibold">
+          {boldText}
+        </strong>
+      );
+      i += 2;
+      continue;
+    }
+
+    // Citations [1], [2], [1, 2]
+    if (text[i] === "[" && text.substring(i).match(/^\[\d+(?:,\s*\d+)*\]/)) {
+      if (currentText) {
+        parts.push(currentText);
+        currentText = "";
+      }
+      const match = text.substring(i).match(/^\[(\d+(?:,\s*\d+)*)\]/);
+      if (match) {
+        const citation = match[1];
+        parts.push(
+          <sup
+            key={i}
+            className={`mx-0.5 px-1.5 py-0.5 text-xs font-medium rounded ${
+              isUser
+                ? "bg-white/30 text-white"
+                : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+            }`}
+          >
+            {citation}
+          </sup>
+        );
+        i += match[0].length;
+        continue;
+      }
+    }
+
+    currentText += text[i];
+    i++;
+  }
+
+  return parts;
+};
+
+// Main Component
+export default function MessageBubble({
   message,
   onEditMessage,
-}) => {
+}: MessageBubbleProps) {
   const isUser = message.sender === "user";
   const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState(message.text);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Add CSS animation for tooltip
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) translateY(-4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
 
   useEffect(() => {
     setEditedText(message.text);
@@ -74,14 +592,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   }, [isEditing]);
 
-  // ✅ Xử lý text và sources thông minh
   const { displayText, activeSources } = useMemo(() => {
     if (isUser) return { displayText: message.text, activeSources: [] };
 
     let sources = message.sources ? [...message.sources] : [];
     let text = message.text || "";
 
-    // Parse inline citations [1], [2], [1, 2]
     const citationRegex = /\[(\d+(?:,\s*\d+)*)\]/g;
     const citationsInText = new Set<number>();
     let match;
@@ -91,7 +607,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       nums.forEach((n) => citationsInText.add(n));
     }
 
-    // Tự động extract sources từ text nếu chưa có
     if (sources.length === 0) {
       const sourceRegex =
         /\[(?:Nguồn|Source)\s*(\d+):\s*(.*?)(?:,\s*Page\s*(\d+))?\]/gi;
@@ -104,12 +619,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       }
     }
 
-    // Clean text: xóa phần [Nguồn X: ...] nhưng giữ [1], [2]
     const cleanedText = text
       .replace(/\[(?:Nguồn|Source)\s*\d+:\s*[\s\S]*?\]/gi, "")
       .trim();
 
-    // Filter sources theo citations thực tế
     const usedSources = sources.filter(
       (_, idx) => citationsInText.size === 0 || citationsInText.has(idx + 1)
     );
@@ -156,7 +669,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   };
 
-  // Render User's attached files
   const renderUserFiles = () => {
     if (!isUser) return null;
     const filesToRender = [];
@@ -212,7 +724,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     );
   };
 
-  // ✅ Render Sources với design mới
   const renderSources = () => {
     if (isUser || !activeSources || activeSources.length === 0) return null;
 
@@ -228,7 +739,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         </div>
         <div className="space-y-2">
           {activeSources.map((source, index) => {
-            // Handle both old and new field names
             const docTitle =
               source.documentTitle ||
               (source as any).document_title ||
@@ -349,7 +859,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         isUser ? "justify-end" : "justify-start"
       }`}
     >
-      {/* AI Avatar */}
       {!isUser && (
         <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-lg shadow-md bg-gradient-to-br from-blue-500 to-purple-600">
           <svg
@@ -407,11 +916,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         ) : (
           <>
             {(isUser ? message.text : displayText) && (
-              <div className="prose-sm prose max-w-none dark:prose-invert">
-                <div className="whitespace-pre-wrap leading-relaxed text-[15px]">
-                  {isUser ? message.text : displayText}
-                </div>
-              </div>
+              <MarkdownRenderer
+                content={isUser ? message.text : displayText}
+                isUser={isUser}
+                sources={activeSources}
+              />
             )}
           </>
         )}
@@ -421,7 +930,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         {renderAIActions()}
       </div>
 
-      {/* User Avatar */}
       {isUser && (
         <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 text-sm font-semibold text-white rounded-lg bg-gradient-to-br from-gray-600 to-gray-700">
           U
@@ -429,4 +937,4 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       )}
     </div>
   );
-};
+}

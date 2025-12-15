@@ -7,7 +7,7 @@ import {
   FiTrash2,
   FiSave,
   FiX,
-  FiFileText, // 👈 Import thêm icon File
+  FiFileText,
 } from "react-icons/fi";
 import { TbPin } from "react-icons/tb";
 import { HiOutlineChatBubbleLeftRight } from "react-icons/hi2";
@@ -216,7 +216,6 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
     }
     return "from-primary/20 to-secondary/20 text-primary";
   };
-  // --- END LOGIC GIỮ NGUYÊN ---
 
   // ✅ RENDER ITEM VỚI THÔNG TIN FILE
   const ConversationItem: React.FC<{ conv: Conversation }> = ({ conv }) => {
@@ -341,13 +340,13 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                 {/* 👇 HIỂN THỊ FILE & SỐ LƯỢNG (MỚI) */}
                 {docCount > 0 && (
                   <div className="flex items-center gap-1.5 mt-1 mb-0.5">
-                    <FiFileText className="w-3 h-3 text-primary/70 flex-shrink-0" />
-                    <span className="text-xs text-text-muted truncate">
+                    <FiFileText className="flex-shrink-0 w-3 h-3 text-primary/70" />
+                    <span className="text-xs truncate text-text-muted">
                       <span className="font-medium text-primary/80">
                         {docCount} tài liệu
                       </span>
                       {firstDocTitle && (
-                        <span className="opacity-70 ml-1">
+                        <span className="ml-1 opacity-70">
                           • {firstDocTitle}{" "}
                           {docCount > 1 ? `+${docCount - 1}` : ""}
                         </span>
@@ -488,7 +487,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
           <>
             {groupedConversations.pinned.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-xs font-semibold text-primary/60 uppercase tracking-wider">
+                <div className="px-2 py-1 text-xs font-semibold tracking-wider uppercase text-primary/60">
                   📌 Đã ghim
                 </div>
                 <div className="space-y-1">
@@ -500,7 +499,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             )}
             {groupedConversations.today.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-xs font-semibold text-primary/60 uppercase tracking-wider">
+                <div className="px-2 py-1 text-xs font-semibold tracking-wider uppercase text-primary/60">
                   Hôm nay
                 </div>
                 <div className="space-y-1">
@@ -512,7 +511,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             )}
             {groupedConversations.yesterday.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-xs font-semibold text-primary/60 uppercase tracking-wider">
+                <div className="px-2 py-1 text-xs font-semibold tracking-wider uppercase text-primary/60">
                   Hôm qua
                 </div>
                 <div className="space-y-1">
@@ -524,7 +523,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             )}
             {groupedConversations.thisWeek.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-xs font-semibold text-primary/60 uppercase tracking-wider">
+                <div className="px-2 py-1 text-xs font-semibold tracking-wider uppercase text-primary/60">
                   Tuần này
                 </div>
                 <div className="space-y-1">
@@ -536,7 +535,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             )}
             {groupedConversations.thisMonth.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-xs font-semibold text-primary/60 uppercase tracking-wider">
+                <div className="px-2 py-1 text-xs font-semibold tracking-wider uppercase text-primary/60">
                   Tháng này
                 </div>
                 <div className="space-y-1">
@@ -548,7 +547,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             )}
             {groupedConversations.older.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-xs font-semibold text-primary/60 uppercase tracking-wider">
+                <div className="px-2 py-1 text-xs font-semibold tracking-wider uppercase text-primary/60">
                   Cũ hơn
                 </div>
                 <div className="space-y-1">

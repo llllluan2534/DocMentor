@@ -3,7 +3,7 @@
 // ============================================
 import React, { useEffect, useRef } from "react";
 import { ChatMessage } from "@/types/chat.types";
-import { MessageBubble } from "./MessageBubble";
+import MessageBubble from "./MessageBubble";
 
 interface MessageListProps {
   messages: ChatMessage[];
