@@ -19,26 +19,16 @@ const GoogleOAuthButton: React.FC<{
   onError: (error: string) => void;
   isLoading: boolean;
 }> = ({ onSuccess, onError, isLoading }) => {
-  // ✅ SỬA: Move handleCredentialResponse ra ngoài useEffect
   const handleCredentialResponse = React.useCallback(
-    async (response: any) => {
+    (response: any) => {
       try {
-        const result = await fetch(
-          `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"}/auth/google`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ credential: response.credential }),
-          }
-        );
-
-        const data = await result.json();
-
-        if (!result.ok) {
-          throw new Error(data.detail || "Google authentication failed");
+        // Kiểm tra xem Google có trả về credential không
+        if (response.credential) {
+          // Truyền nguyên cục response của Google ra ngoài cho LoginPage xử lý
+          onSuccess(response);
+        } else {
+          onError("Không nhận được phản hồi từ Google");
         }
-
-        onSuccess(data);
       } catch (error: any) {
         onError(error.message);
       }

@@ -103,12 +103,12 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
                     {user.avatar ? (
                       <img
                         src={user.avatar}
-                        alt={user.name}
+                        alt={user.name || "User"}
                         className="object-cover w-full h-full"
                       />
                     ) : (
                       <span className="flex items-center justify-center w-full h-full font-semibold text-white">
-                        {user.name.charAt(0).toUpperCase()}
+                        {(user.name || user.email || "U").charAt(0).toUpperCase()}
                       </span>
                     )}
                   </div>

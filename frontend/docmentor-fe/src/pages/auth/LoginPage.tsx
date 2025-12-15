@@ -32,20 +32,22 @@ const LoginPage: React.FC = () => {
   };
 
   // ✨ NEW: Google OAuth login handler
-  const handleGoogleSuccess = async (googleData: any) => {
+  const handleGoogleSuccess = async (googleResponse: any) => {
     try {
-      setIsLoading(true);
       setError("");
+      // Không set isLoading ở đây nữa vì AuthProvider đã xử lý rồi,
+      // nhưng nếu muốn loading UI thì cứ giữ
 
-      await realAuthService.loginWithGoogle(googleData.credential);
+      console.log("🔹 Google Credential:", googleResponse.credential);
 
-      console.log("Token after login:", localStorage.getItem("auth_token"));
+      // 👇 GỌI AUTH PROVIDER: Chỉ truyền credential string
+      await loginWithGoogle(googleResponse.credential);
 
+      // Nếu không lỗi thì chuyển trang
       navigate("/user");
     } catch (err: any) {
-      setError(err.message || "Google login failed");
-    } finally {
-      setIsLoading(false);
+      console.error(err);
+      setError(err.message || "Đăng nhập Google thất bại");
     }
   };
 
@@ -56,7 +58,7 @@ const LoginPage: React.FC = () => {
     >
       <LoginForm
         onSubmit={handleLogin}
-        onGoogleSuccess={handleGoogleSuccess} // ✨ NEW
+        onGoogleSuccess={handleGoogleSuccess}
         isLoading={isLoading}
         error={error}
       />
