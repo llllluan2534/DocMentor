@@ -32,9 +32,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   sessionId: propSessionId,
   onNewConversation,
   onCreateConversationFromHeroChat,
-  initialFile,
   selectedDocuments = [],
-  conversations = [],
   onOpenDocumentModal,
   onRemoveDocument,
 }) => {
@@ -75,7 +73,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   };
 
   // ============================================================
-  // LOAD CHAT HISTORY (ĐÃ FIX ĐỂ GIỮ FILE)
+  // LOAD CHAT HISTORY 
   // ============================================================
 
   useEffect(() => {
