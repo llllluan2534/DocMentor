@@ -22,7 +22,7 @@ interface AuthContextType {
     password: string,
     rememberMe: boolean
   ) => Promise<void>;
-  loginWithGoogle: (googleData: GoogleAuthResponse) => Promise<void>; // ✨ NEW
+  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
 }
@@ -89,20 +89,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   // ✨ NEW: Google OAuth login
-  const loginWithGoogle = async (googleData: GoogleAuthResponse) => {
+  const loginWithGoogle = async (credential: string) => {
     try {
-      // Data is already processed by authService.loginWithGoogle()
-      // which is called before this function
-      setUser(googleData.user);
+      setIsLoading(true); // Bật loading
+
+      // 1. Gọi API Backend để đổi credential lấy User Info
+      const response = await realAuthService.loginWithGoogle(credential);
+
+      // 2. Cập nhật State cho toàn bộ ứng dụng
+      setUser(response.user);
       setIsAuthenticated(true);
 
-      console.log("✅ Google auth state updated:", {
-        email: googleData.user.email,
-        isNewUser: googleData.is_new_user,
-      });
+      console.log("✅ Auth Provider State Updated:", response.user.email);
     } catch (error: any) {
-      console.error("❌ Google login error:", error);
-      throw error;
+      console.error("❌ Google login error in Provider:", error);
+      throw error; // Ném lỗi ra để LoginPage hiển thị thông báo
+    } finally {
+      setIsLoading(false);
     }
   };
 
