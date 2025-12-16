@@ -7,10 +7,10 @@ import {
 } from "react-router-dom";
 import { useAuth } from "@/app/providers/AuthProvider";
 import { ChatContainer } from "@/features/chat/components/ChatContainer";
-import { ChatSidebar } from "@/features/chat/components/ChatSidebar";
 import { DocumentSelectionModal } from "@/features/chat/components/DocumentSelectionModal";
 import { Conversation } from "@/types/chat.types";
 import { chatService } from "@/services/chat/chatService";
+import AppSidebar from "@/components/layout/AppSidebar";
 
 const ChatPage: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -23,6 +23,7 @@ const ChatPage: React.FC = () => {
   >([]);
 
   const [searchParams] = useSearchParams();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const navigate = useNavigate();
   const { conversationId: paramConvId } = useParams();
   const { pathname } = useLocation();
@@ -364,23 +365,26 @@ const ChatPage: React.FC = () => {
 
       {/* Sidebar - chỉ hiển thị khi user đã login và không phải guest chat */}
       {showSidebar && (
-        <div className="relative z-10 flex-shrink-0 w-80 animate-slide-in-left">
-          <ChatSidebar
-            conversations={conversations}
-            activeConversationId={activeConversationId}
-            onSelectConversation={handleSelectConversation}
-            onNewConversation={handleNewConversation}
-            onDeleteConversation={handleDeleteConversation}
-            onRenameConversation={handleRenameConversation}
-            onPinConversation={handlePinConversation}
-          />
-        </div>
+        <AppSidebar
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+          chatProps={{
+            conversations: conversations,
+            activeConversationId: activeConversationId,
+            onSelectConversation: handleSelectConversation,
+            onNewConversation: handleNewConversation,
+            onDeleteConversation: handleDeleteConversation,
+            onRenameConversation: handleRenameConversation,
+            onPinConversation: handlePinConversation,
+          }}
+        />
       )}
 
       {/* Main chat content */}
+      {/* ✅ QUAN TRỌNG: Thêm lg:ml-72 để nội dung không bị Sidebar che mất */}
       <main
-        className={`relative z-10 animate-fade-in ${
-          showSidebar ? "flex-1" : "w-full"
+        className={`relative z-10 h-full transition-all duration-300 ${
+          showSidebar && isSidebarOpen ? "flex-1 lg:ml-72 w-full" : "w-full"
         }`}
       >
         <div
@@ -408,7 +412,7 @@ const ChatPage: React.FC = () => {
         </div>
       </main>
 
-      {/* Document selection modal */}
+      {/* Document modal giữ nguyên */}
       {isLoggedIn && !isGuestChat && (
         <DocumentSelectionModal
           isOpen={isDocumentModalOpen}

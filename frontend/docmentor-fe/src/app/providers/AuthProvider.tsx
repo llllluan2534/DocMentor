@@ -10,7 +10,6 @@ import {
   realAuthService,
   User,
   RegisterData,
-  GoogleAuthResponse,
 } from "../../services/auth/authService";
 
 interface AuthContextType {

@@ -3,13 +3,12 @@
 import axios from "axios";
 
 interface User {
-  id: string;
+  id: number;
   email: string;
-  name: string;
   full_name?: string;
-  role: "user" | "admin";
-  avatar?: string;
-  authProvider?: "email" | "google"; // ✨ NEW
+  avatar_url?: string;
+  role: "student" | "lecturer" | "admin";
+  authProvider?: "email" | "google"; 
 }
 
 interface LoginResponse {
