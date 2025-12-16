@@ -1,11 +1,12 @@
-import React from "react";
+import React, { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Header from "./Header";
-import Sidebar from "./Sidebar";
+import AppSidebar from "./AppSidebar";
 
 const UserLayout: React.FC = () => {
   const location = useLocation();
-  const isChatPage = location.pathname.includes("/user/chat"); // ✅ chỉ nhận dạng ChatPage
+  const isChatPage = location.pathname.includes("/user/chat");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background">
@@ -29,26 +30,24 @@ const UserLayout: React.FC = () => {
 
       {/* Layout chính */}
       <div
-        className={`relative z-10 pt-16 ${
-          isChatPage
-            ? "flex h-screen overflow-hidden" // ✅ ChatPage: cố định full screen
-            : "min-h-screen overflow-y-auto" // ✅ Trang khác: cuộn tự nhiên
-        }`}
+        className={`relative z-10 pt-16 ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"}`}
       >
         {isChatPage ? (
-          // ChatPage stays full width
-          <main className="flex flex-col flex-1 w-full">
-            <div className="flex-1">
-              <div className="h-full animate-fade-in">
-                <Outlet />
-              </div>
-            </div>
+          // ChatPage sẽ tự lo layout sidebar của nó
+          <main className="flex flex-col w-full h-full">
+            <Outlet />
           </main>
         ) : (
-          // Other user pages render with sidebar
+          // Các trang Dashboard/Docs dùng Sidebar mặc định
           <div className="w-full min-h-[calc(100vh-4rem)]">
-            <Sidebar isOpen={true} onClose={() => {}} />
-            <main className="flex-1 p-6 lg:ml-64">
+            <AppSidebar
+              isOpen={isSidebarOpen}
+              onClose={() => setIsSidebarOpen(false)}
+            />
+            {/* ✅ Thêm lg:ml-72 để chừa chỗ cho Sidebar mới (width w-72) */}
+            <main
+              className={`flex-1 p-6 transition-all duration-300 ${isSidebarOpen ? "lg:ml-72" : ""}`}
+            >
               <div className="h-full animate-fade-in">
                 <Outlet />
               </div>
