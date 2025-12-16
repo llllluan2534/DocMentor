@@ -1,3 +1,4 @@
+// src/features/chat/components/ChatContainer.tsx
 import React, { useState, useEffect } from "react";
 import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { FiPlus } from "react-icons/fi";
@@ -6,7 +7,7 @@ import { chatService } from "@/services/chat/chatService";
 import { queryApiService } from "@/services/api/queryApiService";
 import { documentService } from "@/services/document/documentService";
 import { MessageList } from "./MessageList";
-import { ChatInput } from "./ChatInput";
+import { ChatInput } from "./ChatInput"; // ✅ Import ChatInput đã sửa
 import Button from "@/components/common/Button";
 import { useAuth } from "@/app/providers/AuthProvider";
 import HeroChat from "@/features/chat/components/HeroChat";
@@ -43,7 +44,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   const [searchParams, setSearchParams] = useSearchParams();
 
   const navigate = useNavigate();
-  const location = useLocation(); // ✅ Hook để lấy dữ liệu state truyền qua navigate
+  const location = useLocation();
   const { user } = useAuth();
 
   const sessionId = propSessionId || searchParams.get("sessionId");
@@ -73,7 +74,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   };
 
   // ============================================================
-  // LOAD CHAT HISTORY 
+  // LOAD CHAT HISTORY
   // ============================================================
 
   useEffect(() => {
@@ -511,8 +512,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 onClick={onOpenDocumentModal}
                 className="text-sm px-3 py-1.5 bg-primary/20 border border-primary/30 rounded-lg text-primary hover:bg-primary/30 transition-colors flex items-center gap-2"
               >
-                <FiPlus className="w-4 h-4" />
-                Thêm tài liệu
+                <FiPlus className="w-4 h-4" /> Thêm tài liệu
               </Button>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -544,10 +544,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           <div className="flex-1 overflow-y-auto">
             <MessageList messages={messages} isReplying={isReplying} />
           </div>
+
+          {/* ✅ CẬP NHẬT: Truyền selectedDocuments xuống ChatInput */}
           <ChatInput
             onSendMessage={handleSendMessage}
             isLoading={isReplying}
             onOpenDocumentModal={onOpenDocumentModal}
+            selectedDocuments={selectedDocuments} // ✨ TRUYỀN PROP NÀY ĐỂ KÍCH HOẠT HOOK CHECK STATUS
           />
         </>
       )}

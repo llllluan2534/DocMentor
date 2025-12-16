@@ -21,61 +21,45 @@ from ..utils.security import get_current_user
 from ..models.user import User
 from ..models.document import Document
 from ..utils.cache import cache
+from app.database import SessionLocal
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 logger = logging.getLogger(__name__)
 
-# --- Background Task (Giữ nguyên) ---
-async def process_document_background(document_id: int, file_path: str):
-    logger.info(f"🚀 Background task STARTED for document {document_id}")
-    db = SessionLocal()
+# --- Background Task ---
+async def process_document_background(doc_id: int, file_path: str):
+    db = SessionLocal() # ⚠️ Phải tạo DB Session mới
     try:
         processor = DocumentProcessor()
-        logger.info(f"📝 Calling processor.process_document for doc {document_id}")
-        await processor.process_document(db, document_id, file_path)
-        logger.info(f"✅ Background task COMPLETED for document {document_id}")
+        await processor.process_document(db, doc_id, file_path)
     except Exception as e:
-        logger.error(f"❌ Background task FAILED for doc {document_id}: {str(e)}", exc_info=True)
-        try:
-            doc = db.query(Document).filter(Document.id == document_id).first()
-            if doc:
-                if not doc.metadata_: doc.metadata_ = {}
-                doc.metadata_['processing_status'] = 'failed'
-                doc.metadata_['error'] = str(e)
-                db.commit()
-        except Exception as db_err:
-            logger.error(f"❌ Failed to update error status: {str(db_err)}")
+        logger.error(f"❌ Background processing failed for doc {doc_id}: {e}")
     finally:
         db.close()
-        logger.info(f"🔒 DB session closed for document {document_id}")
 
-# --- Upload Endpoint (Giữ nguyên) ---
-@router.post("/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/upload", response_model=DocumentResponse)
 async def upload_document(
-    background_tasks: BackgroundTasks,
+    background_tasks: BackgroundTasks, # ✨ Inject BackgroundTasks
     file: UploadFile = File(...),
-    title: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    logger.info(f"📤 Upload request from user {current_user.id}: {file.filename}")
-    document = await DocumentService.upload_document(db, file, current_user, title)
-    
-    logger.info(f"✅ Document saved to DB: ID={document.id}, Path={document.file_path}")
-    
-    logger.info(f"⏰ Adding background task for document {document.id}")
-    background_tasks.add_task(process_document_background, document.id, document.file_path)
-    
-    try:
-        cache_key = f"user_{current_user.id}_documents"
-        cache.delete(cache_key)
-    except Exception:
-        logger.debug("Failed to delete documents cache", exc_info=True)
-    
-    return DocumentUploadResponse(
-        message="Document uploaded successfully. Processing in background...",
-        document=document
+    # 1. Lưu file vật lý & tạo DB record (rất nhanh)
+    new_doc = await DocumentService.upload_document(
+        db=db, 
+        file=file, 
+        user=current_user
     )
+
+    # 2. Đẩy việc xử lý nặng (Embed) ra sau khi response
+    # Render sẽ không tính thời gian này vào timeout request
+    background_tasks.add_task(
+        process_document_background, 
+        new_doc.id, 
+        new_doc.file_path
+    )
+
+    return new_doc
 
 # --- 🔥 [QUAN TRỌNG] ENDPOINT DOWNLOAD/VIEW ĐÃ SỬA ĐỔI 🔥 ---
 @router.get("/{document_id}/download")
