@@ -251,7 +251,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           file,
           file.name
         );
-        uploadedDocId = Number(uploadedDoc.id);
+        uploadedDocId = parseInt(String(uploadedDoc.id), 10);
         console.log("✅ File uploaded, ID:", uploadedDocId);
       } catch (error) {
         console.error("❌ Upload error:", error);
@@ -365,7 +365,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     try {
       console.log("📂 Uploading file in conversation:", file.name);
       const uploadedDoc = await documentService.uploadDocument(file, file.name);
-      const uploadedDocId = Number(uploadedDoc.id);
+      const uploadedDocId = parseInt(String(uploadedDoc.id), 10);
 
       const docIds = selectedDocuments
         .map((d) => parseInt(d.id, 10))
