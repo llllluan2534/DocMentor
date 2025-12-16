@@ -48,7 +48,7 @@ export const documentService = {
     const doc = response.document;
 
     return {
-      id: doc.id,
+      id: String(doc.id), // ✅ Convert to string to be safe
       title: doc.title,
       type: doc.file_type,
       fileSize: doc.file_size,
