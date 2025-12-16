@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from docx import Document as DocxDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any
+import fitz  # PyMuPDF
 import logging
 from ..models.document import Document
 from .embedding_service_gemini import EmbeddingServiceGemini
@@ -121,22 +122,18 @@ class DocumentProcessor:
             raise
     
     def extract_pdf(self, file_path: str) -> str:
-        """Extract text from PDF file using pdfplumber"""
-        import pdfplumber
+        """Extract text using PyMuPDF (10x faster than pdfplumber)"""
         text = ""
         try:
-            logger.info(f"📖 Opening PDF with pdfplumber: {file_path}")
-            with pdfplumber.open(file_path) as pdf:
-                num_pages = len(pdf.pages)
-                logger.info(f"📄 PDF has {num_pages} pages")
-                
-                for i, page in enumerate(pdf.pages):
-                    # Extract text bảo toàn layout
-                    page_text = page.extract_text()
+            logger.info(f"📖 Opening PDF with PyMuPDF: {file_path}")
+            with fitz.open(file_path) as doc:
+                logger.info(f"📄 PDF has {len(doc)} pages")
+                for i, page in enumerate(doc):
+                    page_text = page.get_text("text")
                     if page_text:
                         text += f"\n[Page {i + 1}]\n{page_text}"
             
-            logger.info(f"✅ PDF extraction complete: {len(text)} characters")
+            logger.info(f"✅ PDF extraction complete: {len(text)} chars")
             return text.strip()
         except Exception as e:
             logger.error(f"❌ Error extracting PDF: {str(e)}")
