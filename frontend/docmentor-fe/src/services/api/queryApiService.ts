@@ -170,7 +170,7 @@ class QueryApiService {
   async sendQuery(
     queryText: string,
     documentIds: number[],
-    maxResults: number = 5,
+    maxResults: number = 15,
     conversationId?: number // ✅ NEW PARAMETER
   ): Promise<QueryResponse> {
     try {
