@@ -47,6 +47,11 @@ export const documentService = {
     const response = await documentApiService.uploadDocument(file, title);
     const doc = (response as any).document || response;
 
+    // Kiểm tra an toàn
+    if (!doc || !doc.id) {
+        throw new Error("Invalid response format from server");
+    }
+
     return {
       id: String(doc.id), // Chắc chắn doc.id tồn tại
       title: doc.title,
