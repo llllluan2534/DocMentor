@@ -10,7 +10,7 @@ import re
 class QueryRequest(BaseModel):
     query_text: str = Field(..., min_length=1, max_length=500)
     document_ids: List[int] = Field(default=[])
-    max_results: int = Field(default=5, ge=1, le=10)
+    max_results: int = Field(default=10, ge=1, le=50)
     conversation_id: Optional[int] = None
 
     @field_validator("document_ids")

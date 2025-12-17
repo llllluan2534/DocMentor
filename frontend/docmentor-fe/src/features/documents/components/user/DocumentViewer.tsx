@@ -40,11 +40,15 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({ document }) => {
           objectUrl = URL.createObjectURL(blob);
           setFileUrl(objectUrl);
         }
-      } catch (err) {
-        console.error("Error loading document:", err);
-        if (isMounted) setError("Không thể tải nội dung tài liệu này.");
-      } finally {
-        if (isMounted) setIsLoading(false);
+      } catch (err: any) {
+        // Thêm any để đọc status
+        if (err.status === 404) {
+          setError(
+            "File gốc không tìm thấy trên server (có thể do server khởi động lại). Vui lòng upload lại."
+          );
+        } else {
+          setError("Không thể tải nội dung tài liệu này.");
+        }
       }
     };
 
@@ -65,7 +69,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({ document }) => {
   if (isLoading) {
     return (
       <div className="w-full h-[70vh] flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-        <FiLoader className="w-8 h-8 text-primary animate-spin mb-3" />
+        <FiLoader className="w-8 h-8 mb-3 text-primary animate-spin" />
         <p className="text-gray-500 dark:text-gray-400">Đang tải tài liệu...</p>
       </div>
     );
@@ -75,11 +79,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({ document }) => {
   if (error) {
     return (
       <div className="w-full h-[50vh] flex flex-col items-center justify-center bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-200 dark:border-red-900/30 p-6">
-        <FiAlertCircle className="w-10 h-10 text-red-500 mb-3" />
-        <p className="text-red-500 font-medium mb-4">{error}</p>
+        <FiAlertCircle className="w-10 h-10 mb-3 text-red-500" />
+        <p className="mb-4 font-medium text-red-500">{error}</p>
         <Button
           onClick={() => window.location.reload()}
-          className="bg-white border border-red-200 text-red-500 hover:bg-red-50"
+          className="text-red-500 bg-white border border-red-200 hover:bg-red-50"
         >
           Thử lại
         </Button>
@@ -117,7 +121,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({ document }) => {
   if (fileType === "txt" && textContent !== null) {
     return (
       <div className="w-full h-[80vh] overflow-auto bg-white dark:bg-[#1e1e1e] p-6 rounded-lg border border-gray-200 dark:border-gray-700 shadow-inner">
-        <pre className="whitespace-pre-wrap font-mono text-sm text-gray-800 dark:text-gray-300">
+        <pre className="font-mono text-sm text-gray-800 whitespace-pre-wrap dark:text-gray-300">
           {textContent}
         </pre>
       </div>
@@ -128,13 +132,13 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({ document }) => {
   // Các file DOCX, PPTX không thể render trực tiếp bằng Blob URL trên trình duyệt
   return (
     <div className="w-full h-[60vh] flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center">
-      <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+      <div className="flex items-center justify-center w-20 h-20 mb-4 rounded-full bg-primary/10">
         <FiFile className="w-10 h-10 text-primary" />
       </div>
-      <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2 uppercase">
+      <h3 className="mb-2 text-xl font-bold text-gray-800 uppercase dark:text-white">
         {fileType}
       </h3>
-      <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-md">
+      <p className="max-w-md mb-6 text-gray-500 dark:text-gray-400">
         Trình duyệt không hỗ trợ xem trước trực tiếp định dạng này. Vui lòng tải
         xuống để xem nội dung đầy đủ.
       </p>
@@ -143,7 +147,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({ document }) => {
         <a
           href={fileUrl}
           download={document.title} // Thuộc tính này sẽ kích hoạt tải xuống thay vì mở tab mới
-          className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
+          className="flex items-center gap-2 px-6 py-3 font-medium text-white transition-colors shadow-lg bg-primary rounded-xl hover:bg-primary/90 shadow-primary/20"
         >
           <FiDownload className="w-5 h-5" />
           Tải xuống tài liệu

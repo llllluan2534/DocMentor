@@ -45,10 +45,10 @@ export const documentService = {
     }
 
     const response = await documentApiService.uploadDocument(file, title);
-    const doc = response.document;
+    const doc = (response as any).document || response;
 
     return {
-      id: String(doc.id), // ✅ Convert to string to be safe
+      id: String(doc.id), // Chắc chắn doc.id tồn tại
       title: doc.title,
       type: doc.file_type,
       fileSize: doc.file_size,
