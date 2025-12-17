@@ -136,14 +136,35 @@ class RAGServiceGemini:
             doc_map = {doc.id: doc for doc in documents}
             
             # Step 2: Search similar chunks
-            logger.info(f"🔎 Searching in vector database...")
-            matches = await self.embedding_service.search_similar_chunks(
-                query=query_text,
-                document_ids=valid_doc_ids,
-                top_k=max_results
-            )
+            logger.info(f"🔎 Searching chunks for docs: {valid_doc_ids}")
+            matches = []
             
-            if not matches or matches[0]['score'] < 0.3:
+            # Nếu user chọn nhiều file (ví dụ so sánh), ta chia đều quota cho mỗi file
+            # Ví dụ: max_results=15, chọn 2 file -> mỗi file lấy 8 chunks (làm tròn lên)
+            if len(valid_doc_ids) > 1:
+                chunks_per_doc = max(5, int(max_results / len(valid_doc_ids)) + 2) # +2 để dư ra chút
+                
+                for doc_id in valid_doc_ids:
+                    doc_matches = await self.embedding_service.search_similar_chunks(
+                        query=query_text,
+                        document_ids=[doc_id], # Search riêng từng file
+                        top_k=chunks_per_doc
+                    )
+                    matches.extend(doc_matches)
+                
+                # Sort lại theo score để chunks tốt nhất lên đầu
+                matches.sort(key=lambda x: x['score'], reverse=True)
+                # Cắt bớt nếu quá nhiều (giới hạn context window)
+                matches = matches[:max_results * 2] 
+            else:
+                # Nếu chỉ 1 file thì search bình thường
+                matches = await self.embedding_service.search_similar_chunks(
+                    query=query_text,
+                    document_ids=valid_doc_ids,
+                    top_k=max_results
+                )
+            
+            if not matches or matches[0]['score'] < 0.25:
                 return {
                     'answer': NO_RESULT_RESPONSE.format(query=query_text),
                     'sources': [],
