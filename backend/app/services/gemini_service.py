@@ -130,7 +130,7 @@ class GeminiService:
             response = model.generate_content(
                 prompt,
                 generation_config={
-                    'temperature': 0.3,
+                    'temperature': 0.4,
                     'top_p': 0.8,
                     'top_k': 40,
                     'max_output_tokens': 8192,
