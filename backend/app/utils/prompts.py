@@ -254,34 +254,49 @@ Giải thích CHI TIẾT và CÓ CẤU TRÚC, bao gồm:
 # COMPARISON TEMPLATE (for "so sánh A và B")
 # ============================================================================
 COMPARISON_TEMPLATE = """━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 NGỮ CẢNH
+📚 NGỮ CẢNH TỪ CÁC TÀI LIỆU
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 {context}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-❓ YÊU CẦU SO SÁNH
+❓ YÊU CẦU: {question}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-{question}
+Bạn là một chuyên gia phân tích tài liệu. Hãy so sánh 2 (hoặc nhiều) tài liệu trên dựa trên các tiêu chí sau:
+
+⚠️ **PHÂN TÍCH QUAN TRỌNG**:
+1. Nếu các tài liệu có **chủ đề khác hẳn nhau** (Ví dụ: 1 file Hướng dẫn kỹ thuật vs 1 file Giáo trình lý thuyết):
+   - ĐỪNG cố so sánh chi tiết vụn vặt (như so sánh "bước 1 cài đặt" với "định nghĩa RAM").
+   - HÃY so sánh về: **Mục đích tài liệu**, **Đối tượng đọc**, **Phạm vi nội dung**, và **Cấu trúc trình bày**.
+
+2. Nếu các tài liệu có **cùng chủ đề**:
+   - So sánh trực tiếp các quan điểm, số liệu, hoặc phương pháp được nêu.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 HƯỚNG DẪN
+📋 FORMAT TRẢ LỜI (Bắt buộc dùng Markdown)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. Tạo bảng so sánh markdown với các tiêu chí chính
-2. Thêm giải thích ngắn dưới bảng nếu cần
-3. Trích dẫn [số] cho mỗi thông tin
+### 1. Tổng quan sự khác biệt
+[Mô tả ngắn gọn 1-2 câu về sự khác biệt lớn nhất giữa các tài liệu]
 
-Format bảng:
-```
-| Tiêu chí | [Đối tượng A] | [Đối tượng B] |
-|----------|---------------|---------------|
-| ...      | ...           | ...           |
-```
+### 2. Bảng so sánh chi tiết
+| Tiêu chí so sánh | [Tên Tài liệu A] | [Tên Tài liệu B] |
+|------------------|------------------|------------------|
+| **Mục đích chính** | [Mục đích của A] | [Mục đích của B] |
+| **Nội dung cốt lõi** | [Tóm tắt A]      | [Tóm tắt B]      |
+| **Đối tượng sử dụng**| [Ai nên đọc A?]  | [Ai nên đọc B?]  |
+| **Loại tài liệu** | (VD: Hướng dẫn, Báo cáo...) | (VD: Giáo trình, Lý thuyết...) |
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💬 SO SÁNH
+### 3. Điểm nổi bật riêng
+**[Tên Tài liệu A]:**
+- [Điểm chính 1] [1]
+- [Điểm chính 2] [2]
+
+**[Tên Tài liệu B]:**
+- [Điểm chính 1] [3]
+- [Điểm chính 2] [4]
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 

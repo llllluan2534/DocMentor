@@ -15,7 +15,6 @@ import PrivateRoute from "./PrivateRoute";
 import DocumentsPage from "../pages/user/DocumentsPage";
 import DocumentDetailPage from "@/pages/user/DocumentDetailPage";
 import ChatPage from "@/pages/user/ChatPage";
-import ProfilePage from "@/pages/user/ProfilePage";
 import SettingsPage from "@/pages/user/SettingsPage";
 import AdminLayout from "@/components/layout/admin/AdminLayout";
 import AdminDashboardPage from "@/pages/admin/AdminDashboardPage";
@@ -75,7 +74,6 @@ const router = createBrowserRouter([
             element: <ChatPage />, // ChatPage cho user (conversation + sidebar)
           },
           { path: "chat/:conversationId", element: <ChatPage /> }, // ✨ User bookmark conversation
-          { path: "profile", element: <ProfilePage /> },
           { path: "settings", element: <SettingsPage /> },
         ],
       },

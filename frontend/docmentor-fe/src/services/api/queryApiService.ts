@@ -1,6 +1,7 @@
 // src/services/api/queryApiService.ts - Real API Service with Axios
 
 import axios, { AxiosInstance, AxiosError } from "axios";
+import apiClient from "./apiClient";
 
 // ============================================================
 // TYPES
@@ -75,319 +76,55 @@ interface ApiError {
 // ============================================================
 
 class QueryApiService {
-  private axiosInstance: AxiosInstance;
-  private apiBaseUrl: string;
-
-  constructor() {
-    this.apiBaseUrl =
-      (import.meta as any).env?.VITE_API_BASE_URL || "http://localhost:8000";
-
-    this.axiosInstance = axios.create({
-      baseURL: this.apiBaseUrl,
-      timeout: 30000,
-      headers: {
-        "Content-Type": "application/json",
-      },
-      withCredentials: false,
-    });
-
-    // Request Interceptor
-    this.axiosInstance.interceptors.request.use(
-      (config) => {
-        const token = this.getAuthToken();
-
-        console.log("🔐 Query API Request:", {
-          url: config.url,
-          hasToken: !!token,
-          tokenPrefix: token ? token.substring(0, 20) + "..." : "none",
-        });
-
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        } else {
-          console.warn("⚠️ No auth token found for query!");
-        }
-
-        return config;
-      },
-      (error) => {
-        console.error("Request interceptor error:", error);
-        return Promise.reject(error);
-      }
-    );
-
-    // Response Interceptor
-    this.axiosInstance.interceptors.response.use(
-      (response) => response,
-      (error: AxiosError) => {
-        const apiError: ApiError = {
-          status: error.response?.status || 500,
-          message: error.message,
-          detail:
-            (error.response?.data as any)?.detail || error.response?.statusText,
-        };
-
-        console.error("❌ Query API Error:", {
-          ...apiError,
-          url: error.config?.url,
-          headers: error.config?.headers,
-        });
-
-        if (error.response?.status === 401) {
-          console.warn("🔒 Unauthorized: Token invalid or expired");
-          console.log("Current token:", this.getAuthToken()?.substring(0, 20));
-
-          // Don't auto-redirect on 401 - let component handle it
-          // localStorage.removeItem("auth_token");
-          // sessionStorage.removeItem("auth_token");
-        }
-
-        return Promise.reject(apiError);
-      }
-    );
-  }
-
-  private getAuthToken(): string | null {
-    return (
-      localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token")
-    );
-  }
-
-  private handleError(error: any): never {
-    if (error.status && error.message) {
-      throw error;
-    }
-    throw {
-      status: 500,
-      message: "An unknown error occurred",
-      detail: error.message,
-    };
-  }
-
-  /**
-   * ✅ UPDATED: Send query with optional conversation_id
-   */
+  // ✅ API: Gửi câu hỏi (Query / RAG)
   async sendQuery(
     queryText: string,
     documentIds: number[],
-    maxResults: number = 15,
-    conversationId?: number // ✅ NEW PARAMETER
+    maxResults: number = 15, // Tăng lên 15 để hỗ trợ so sánh
+    conversationId?: number
   ): Promise<QueryResponse> {
     try {
-      console.log("📤 Sending query:", {
-        queryText,
-        documentIds,
-        conversationId,
-      });
-
-      // ✅ Add conversation_id as query parameter if provided
+      // Logic URL param
       const url = conversationId
         ? `/query/?conversation_id=${conversationId}`
         : "/query/";
 
-      const response = await this.axiosInstance.post<QueryResponse>(url, {
+      const response = await apiClient.post<QueryResponse>(url, {
         query_text: queryText,
         document_ids: documentIds,
         max_results: maxResults,
       });
 
-      console.log("✓ Query response received:", response.data);
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error("❌ Send query failed:", error);
-      this.handleError(error);
+      throw error; // Để component hiển thị lỗi
     }
   }
 
+  // ✅ API: Lấy lịch sử chat
   async getQueryHistory(params?: HistoryParams): Promise<QueryHistory> {
-    try {
-      console.log("📤 Fetching query history:", params);
-
-      const queryParams = new URLSearchParams();
-      if (params?.skip !== undefined)
-        queryParams.append("skip", params.skip.toString());
-      if (params?.limit !== undefined)
-        queryParams.append("limit", params.limit.toString());
-      if (params?.date_from) queryParams.append("date_from", params.date_from);
-      if (params?.date_to) queryParams.append("date_to", params.date_to);
-      if (params?.search) queryParams.append("search", params.search);
-      if (params?.sort_by) queryParams.append("sort_by", params.sort_by);
-      if (params?.order) queryParams.append("order", params.order);
-
-      const response = await this.axiosInstance.get<QueryHistory>(
-        `/query/history?${queryParams.toString()}`
-      );
-
-      console.log("✓ History fetched:", response.data);
-      return response.data;
-    } catch (error) {
-      console.error("❌ Fetch history failed:", error);
-      this.handleError(error);
-    }
+    const response = await apiClient.get<QueryHistory>("/query/history", {
+      params: params, // Axios tự động xử lý việc ghép query string (?skip=...)
+    });
+    return response.data;
   }
 
-  async getQueryDetail(queryId: number): Promise<QueryResponse> {
-    try {
-      console.log("📤 Fetching query detail:", queryId);
-
-      const response = await this.axiosInstance.get<QueryResponse>(
-        `/query/${queryId}`
-      );
-
-      console.log("✓ Query detail:", response.data);
-      return response.data;
-    } catch (error) {
-      console.error("❌ Fetch query detail failed:", error);
-      this.handleError(error);
-    }
-  }
-
-  async deleteQuery(
-    queryId: number
-  ): Promise<{ message: string; deleted_id: number }> {
-    try {
-      console.log("📤 Deleting query:", queryId);
-
-      const response = await this.axiosInstance.delete<{
-        message: string;
-        deleted_id: number;
-      }>(`/query/${queryId}`);
-
-      console.log("✓ Query deleted:", response.data);
-      return response.data;
-    } catch (error) {
-      console.error("❌ Delete query failed:", error);
-      this.handleError(error);
-    }
-  }
-
-  // ============================================================
-  // FEEDBACK OPERATIONS
-  // ============================================================
-
-  /**
-   * ⭐ Submit feedback/rating for a query
-   */
+  // ✅ API: Gửi Feedback
   async submitFeedback(feedback: QueryFeedbackCreate): Promise<any> {
-    try {
-      console.log("📤 Submitting feedback:", feedback);
-
-      // Validate rating
-      if (feedback.rating < 1 || feedback.rating > 5) {
-        throw {
-          status: 422,
-          message: "Invalid rating",
-          detail: "Rating must be between 1 and 5",
-        };
-      }
-
-      const response = await this.axiosInstance.post("/query/feedback", {
-        query_id: feedback.query_id,
-        rating: feedback.rating,
-        feedback_text: feedback.feedback_text || null,
-      });
-
-      console.log("✓ Feedback submitted:", response.data);
-      return response.data;
-    } catch (error) {
-      console.error("❌ Submit feedback failed:", error);
-      this.handleError(error);
-    }
+    const response = await apiClient.post("/query/feedback", {
+      query_id: feedback.query_id,
+      rating: feedback.rating,
+      feedback_text: feedback.feedback_text,
+    });
+    return response.data;
   }
 
-  /**
-   * 📖 Get feedback for a query
-   */
-  async getFeedback(queryId: number): Promise<QueryFeedbackResponse | null> {
-    try {
-      console.log("📤 Fetching feedback for query:", queryId);
-
-      const response = await this.axiosInstance.get<QueryFeedbackResponse>(
-        `/query/${queryId}/feedback`
-      );
-
-      console.log("✓ Feedback fetched:", response.data);
-      return response.data;
-    } catch (error) {
-      // 404 is acceptable (no feedback yet)
-      if ((error as any).status === 404) {
-        console.log("ℹ️ No feedback found for query:", queryId);
-        return null;
-      }
-      console.error("❌ Fetch feedback failed:", error);
-      this.handleError(error);
-    }
-  }
-
-  // ============================================================
-  // STATISTICS
-  // ============================================================
-
-  /**
-   * 📊 Get query statistics
-   */
+  // ✅ API: Lấy thống kê
   async getQueryStats(): Promise<QueryStatsResponse> {
-    try {
-      console.log("📤 Fetching query stats");
-
-      const response =
-        await this.axiosInstance.get<QueryStatsResponse>("/query/stats");
-
-      console.log("✓ Stats fetched:", response.data);
-      return response.data;
-    } catch (error) {
-      console.error("❌ Fetch stats failed:", error);
-      this.handleError(error);
-    }
-  }
-
-  // ============================================================
-  // UTILITY METHODS
-  // ============================================================
-
-  /**
-   * Set auth token (call this after login)
-   */
-  setAuthToken(token: string, persistent: boolean = false): void {
-    if (persistent) {
-      localStorage.setItem("auth_token", token);
-      sessionStorage.removeItem("auth_token");
-    } else {
-      sessionStorage.setItem("auth_token", token);
-      localStorage.removeItem("auth_token");
-    }
-  }
-
-  /**
-   * Clear auth token (call this on logout)
-   */
-  clearAuthToken(): void {
-    localStorage.removeItem("auth_token");
-    sessionStorage.removeItem("auth_token");
-  }
-
-  /**
-   * Get axios instance for advanced usage
-   */
-  getAxiosInstance(): AxiosInstance {
-    return this.axiosInstance;
+    const response = await apiClient.get<QueryStatsResponse>("/query/stats");
+    return response.data;
   }
 }
 
-// ============================================================
-// SINGLETON EXPORT
-// ============================================================
-
 export const queryApiService = new QueryApiService();
-
-export type {
-  QueryRequest,
-  QueryResponse,
-  QueryHistory,
-  QueryFeedbackCreate,
-  QueryFeedbackResponse,
-  QueryStatsResponse,
-  HistoryParams,
-  SourceSchema,
-  ApiError,
-};
