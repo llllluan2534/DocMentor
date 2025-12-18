@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 from .config import settings
-from .routers import auth, documents, query, analysis, analytics
+from .routers import auth, documents, query, analysis, analytics, conversations, guest, user_dashboard
 import os
 import logging
 
@@ -18,10 +18,16 @@ app = FastAPI(
 )
 
 allowed_origins = [
+    # Local development
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "https://docmentor-fe.vercel.app",  # giả sử FE deploy
-    "https://docmentor-api.onrender.com",  # backend url cũng nên nếu FE và BE cùng domain
+    "http://localhost:5174",
+
+    # Production frontend
+    "https://docmentor-fe.vercel.app",
+
+    # Backend (Render)
+    "https://docmentor-api.onrender.com",
 ]
 
 app.add_middleware(
@@ -39,16 +45,15 @@ if os.getenv("FRONTEND_URL"):
         allowed_origins.append(frontend_url)
 
 # Trong development, cho phép tất cả origins (tắt credentials)
-if settings.ENVIRONMENT == "development":
+if settings.ENVIRONMENT == "production":
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Development: cho phép tất cả
-        allow_credentials=False,  # Phải tắt credentials khi dùng "*"
+        allow_origins=allowed_origins, 
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 else:
-    # Production: chỉ cho phép origins cụ thể
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
@@ -63,6 +68,9 @@ app.include_router(documents.router)
 app.include_router(query.router)
 app.include_router(analysis.router)
 app.include_router(analytics.router)
+app.include_router(conversations.router)
+app.include_router(guest.router)
+app.include_router(user_dashboard.router)
 
 @app.get("/")
 def read_root():

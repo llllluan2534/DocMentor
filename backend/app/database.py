@@ -6,8 +6,8 @@ from .config import settings
 # Create engine
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_pre_ping=True,  # Verify connections before using
-    echo=True  # Log SQL queries (disable in production)
+    pool_pre_ping=True, 
+    echo=(settings.ENVIRONMENT == "development")
 )
 
 # Session factory

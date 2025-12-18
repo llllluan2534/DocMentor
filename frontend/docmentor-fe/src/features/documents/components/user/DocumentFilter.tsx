@@ -1,9 +1,10 @@
-// src/features/documents/components/user/DocumentFilter.tsx
-
 import React, { useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 export interface Filters {
   type?: string;
+  status?: string;
+  dateRange?: "all" | "today" | "week" | "month" | "3months";
   sortBy?: "date_desc" | "date_asc" | "title_asc" | "size_asc" | "size_desc";
 }
 
@@ -14,14 +15,63 @@ interface DocumentFilterProps {
 export const DocumentFilter: React.FC<DocumentFilterProps> = ({
   onFilterChange,
 }) => {
-  const [filters, setFilters] = useState<Filters>({ sortBy: "date_desc" });
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [filters, setFilters] = useState<Filters>({
+    sortBy: "date_desc",
+    dateRange: "all",
+    status: "all",
+  });
+  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+  const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
+
+  const closeAllDropdowns = () => {
+    setIsSortDropdownOpen(false);
+    setIsTypeDropdownOpen(false);
+    setIsStatusDropdownOpen(false);
+    setIsDateDropdownOpen(false);
+  };
 
   const handleSortChange = (sortBy: Filters["sortBy"]) => {
     const newFilters = { ...filters, sortBy };
     setFilters(newFilters);
     onFilterChange(newFilters);
-    setIsDropdownOpen(false);
+    closeAllDropdowns();
+  };
+
+  const handleTypeChange = (type: string) => {
+    const newType = type === "all" ? undefined : type;
+    const newFilters = { ...filters, type: newType };
+    setFilters(newFilters);
+    console.log("🔍 Filter by type:", {
+      selectedType: type,
+      filters: newFilters,
+    });
+    onFilterChange(newFilters);
+    closeAllDropdowns();
+  };
+
+  const handleStatusChange = (status: string) => {
+    const newStatus = status === "all" ? undefined : status;
+    const newFilters = { ...filters, status: newStatus };
+    setFilters(newFilters);
+    console.log("🔍 Filter by status:", {
+      selectedStatus: status,
+      filters: newFilters,
+    });
+    onFilterChange(newFilters);
+    closeAllDropdowns();
+  };
+
+  const handleDateChange = (dateRange: Filters["dateRange"]) => {
+    const newFilters = { ...filters, dateRange };
+    setFilters(newFilters);
+    console.log("🔍 Filter by date:", {
+      selectedRange: dateRange,
+      filters: newFilters,
+    });
+    onFilterChange(newFilters);
+    closeAllDropdowns();
   };
 
   const getSortLabel = () => {
@@ -41,6 +91,47 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
     }
   };
 
+  const getTypeLabel = () => {
+    switch (filters.type) {
+      case "pdf":
+        return "PDF";
+      case "docx":
+        return "DOCX";
+      case "txt":
+        return "TXT";
+      default:
+        return "Tất cả loại";
+    }
+  };
+
+  const getStatusLabel = () => {
+    switch (filters.status) {
+      case "ready":
+        return "✓ Sẵn sàng";
+      case "processing":
+        return "⟳ Đang xử lý";
+      case "failed":
+        return "✗ Lỗi";
+      default:
+        return "Tất cả trạng thái";
+    }
+  };
+
+  const getDateLabel = () => {
+    switch (filters.dateRange) {
+      case "today":
+        return "Hôm nay";
+      case "week":
+        return "7 ngày qua";
+      case "month":
+        return "30 ngày qua";
+      case "3months":
+        return "90 ngày qua";
+      default:
+        return "Tất cả thời gian";
+    }
+  };
+
   const sortOptions = [
     { label: "Mới nhất", value: "date_desc" as const },
     { label: "Cũ nhất", value: "date_asc" as const },
@@ -49,77 +140,248 @@ export const DocumentFilter: React.FC<DocumentFilterProps> = ({
     { label: "Kích thước (Nhỏ)", value: "size_asc" as const },
   ];
 
+  const typeOptions = [
+    { label: "Tất cả loại", value: "all" },
+    { label: "PDF", value: "pdf" },
+    { label: "DOCX", value: "docx" },
+    { label: "TXT", value: "txt" },
+  ];
+
+  const statusOptions = [
+    { label: "Tất cả trạng thái", value: "all" },
+    { label: "✓ Sẵn sàng", value: "ready" },
+    { label: "⟳ Đang xử lý", value: "processing" },
+    { label: "✗ Lỗi", value: "failed" },
+  ];
+
+  const dateOptions = [
+    { label: "Tất cả thời gian", value: "all" as const },
+    { label: "Hôm nay", value: "today" as const },
+    { label: "7 ngày qua", value: "week" as const },
+    { label: "30 ngày qua", value: "month" as const },
+    { label: "90 ngày qua", value: "3months" as const },
+  ];
+
   return (
-    <div className="flex flex-col md:flex-row gap-4 items-start md:items-end">
-      {/* Filter by Type */}
-
-      {/* Sort Dropdown */}
-      <div className="relative">
-        <label className="block text-xs font-semibold text-text-muted mb-2 uppercase tracking-wider"></label>
-        <button
-          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-          className="px-4 py-2.5 rounded-lg bg-accent border border-primary/30 text-white hover:border-primary/50 transition-all flex items-center gap-2 font-medium hover:bg-accent/80"
-        >
-          <span>{getSortLabel()}</span>
-          <svg
-            className={`w-4 h-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+    <div className="w-full">
+      {/* Filter Controls */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
+        {/* Filter by Type */}
+        <div className="relative flex-1 sm:flex-none min-w-[120px]">
+          <button
+            onClick={() => {
+              closeAllDropdowns();
+              setIsTypeDropdownOpen(!isTypeDropdownOpen);
+            }}
+            className="w-full px-3 py-2.5 rounded-lg bg-accent border border-primary/30 text-white hover:border-primary/50 transition-all flex items-center justify-between gap-2 font-medium hover:bg-accent/80 text-sm"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 14l-7 7m0 0l-7-7m7 7V3"
+            <span className="truncate">{getTypeLabel()}</span>
+            <ChevronDown
+              size={16}
+              className={`flex-shrink-0 transition-transform ${isTypeDropdownOpen ? "rotate-180" : ""}`}
             />
-          </svg>
+          </button>
+
+          {isTypeDropdownOpen && (
+            <div className="absolute top-full left-0 mt-2 w-full sm:w-48 bg-accent border border-primary/30 rounded-lg shadow-lg shadow-primary/20 z-50 overflow-hidden">
+              {typeOptions.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => handleTypeChange(option.value)}
+                  className={`w-full px-4 py-2.5 text-left text-sm transition-all flex items-center gap-2 ${
+                    (option.value === "all" && !filters.type) ||
+                    filters.type === option.value
+                      ? "bg-gradient-to-r from-primary to-secondary text-white"
+                      : "text-text-muted hover:text-white hover:bg-primary/20"
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {((option.value === "all" && !filters.type) ||
+                    filters.type === option.value) && (
+                    <svg
+                      className="w-4 h-4 ml-auto"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Filter by Status */}
+        <div className="relative flex-1 sm:flex-none min-w-[140px]">
+          <button
+            onClick={() => {
+              closeAllDropdowns();
+              setIsStatusDropdownOpen(!isStatusDropdownOpen);
+            }}
+            className="w-full px-3 py-2.5 rounded-lg bg-accent border border-primary/30 text-white hover:border-primary/50 transition-all flex items-center justify-between gap-2 font-medium hover:bg-accent/80 text-sm"
+          >
+            <span className="truncate">{getStatusLabel()}</span>
+            <ChevronDown
+              size={16}
+              className={`flex-shrink-0 transition-transform ${isStatusDropdownOpen ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {isStatusDropdownOpen && (
+            <div className="absolute top-full left-0 mt-2 w-full sm:w-56 bg-accent border border-primary/30 rounded-lg shadow-lg shadow-primary/20 z-50 overflow-hidden">
+              {statusOptions.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => handleStatusChange(option.value)}
+                  className={`w-full px-4 py-2.5 text-left text-sm transition-all flex items-center gap-2 ${
+                    (option.value === "all" && !filters.status) ||
+                    filters.status === option.value
+                      ? "bg-gradient-to-r from-primary to-secondary text-white"
+                      : "text-text-muted hover:text-white hover:bg-primary/20"
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {((option.value === "all" && !filters.status) ||
+                    filters.status === option.value) && (
+                    <svg
+                      className="w-4 h-4 ml-auto"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Filter by Date */}
+        <div className="relative flex-1 sm:flex-none min-w-[140px]">
+          <button
+            onClick={() => {
+              closeAllDropdowns();
+              setIsDateDropdownOpen(!isDateDropdownOpen);
+            }}
+            className="w-full px-3 py-2.5 rounded-lg bg-accent border border-primary/30 text-white hover:border-primary/50 transition-all flex items-center justify-between gap-2 font-medium hover:bg-accent/80 text-sm"
+          >
+            <span className="truncate">{getDateLabel()}</span>
+            <ChevronDown
+              size={16}
+              className={`flex-shrink-0 transition-transform ${isDateDropdownOpen ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {isDateDropdownOpen && (
+            <div className="absolute top-full left-0 mt-2 w-full sm:w-56 bg-accent border border-primary/30 rounded-lg shadow-lg shadow-primary/20 z-50 overflow-hidden">
+              {dateOptions.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => handleDateChange(option.value)}
+                  className={`w-full px-4 py-2.5 text-left text-sm transition-all flex items-center gap-2 ${
+                    filters.dateRange === option.value
+                      ? "bg-gradient-to-r from-primary to-secondary text-white"
+                      : "text-text-muted hover:text-white hover:bg-primary/20"
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {filters.dateRange === option.value && (
+                    <svg
+                      className="w-4 h-4 ml-auto"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Sort Dropdown */}
+        <div className="relative flex-1 sm:flex-none min-w-[120px]">
+          <button
+            onClick={() => {
+              closeAllDropdowns();
+              setIsSortDropdownOpen(!isSortDropdownOpen);
+            }}
+            className="w-full px-3 py-2.5 rounded-lg bg-accent border border-primary/30 text-white hover:border-primary/50 transition-all flex items-center justify-between gap-2 font-medium hover:bg-accent/80 text-sm"
+          >
+            <span className="truncate">{getSortLabel()}</span>
+            <ChevronDown
+              size={16}
+              className={`flex-shrink-0 transition-transform ${isSortDropdownOpen ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {isSortDropdownOpen && (
+            <div className="absolute top-full left-0 mt-2 w-full sm:w-48 bg-accent border border-primary/30 rounded-lg shadow-lg shadow-primary/20 z-50 overflow-hidden">
+              {sortOptions.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => handleSortChange(option.value)}
+                  className={`w-full px-4 py-2.5 text-left text-sm transition-all flex items-center gap-2 ${
+                    filters.sortBy === option.value
+                      ? "bg-gradient-to-r from-primary to-secondary text-white"
+                      : "text-text-muted hover:text-white hover:bg-primary/20"
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {filters.sortBy === option.value && (
+                    <svg
+                      className="w-4 h-4 ml-auto"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Reset Button */}
+        <button
+          onClick={() => {
+            closeAllDropdowns();
+            const resetFilters: Filters = {
+              sortBy: "date_desc",
+              dateRange: undefined,
+              status: undefined,
+            };
+            setFilters(resetFilters);
+            onFilterChange(resetFilters);
+          }}
+          className="w-full sm:w-auto px-4 py-2.5 rounded-lg bg-accent/50 border border-primary/20 text-text-muted hover:text-white hover:bg-accent hover:border-primary/50 transition-all font-medium text-sm hover:shadow-lg hover:shadow-primary/10 duration-300 flex items-center justify-center gap-2"
+        >
+          <span>↺</span>
+          <span>Đặt lại</span>
         </button>
-
-        {/* Dropdown Menu */}
-        {isDropdownOpen && (
-          <div className="absolute top-full mt-2 w-48 bg-accent border border-primary/30 rounded-lg shadow-lg shadow-primary/20 z-10 overflow-hidden">
-            {sortOptions.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => handleSortChange(option.value)}
-                className={`w-full px-4 py-2.5 text-left transition-all flex items-center gap-2 ${
-                  filters.sortBy === option.value
-                    ? "bg-gradient-to-r from-primary to-secondary text-white"
-                    : "text-text-muted hover:text-white hover:bg-primary/20"
-                }`}
-              >
-                <span>{option.label}</span>
-                {filters.sortBy === option.value && (
-                  <svg
-                    className="w-4 h-4 ml-auto"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
-
-      {/* Reset Button */}
-      <button
-        onClick={() => {
-          const resetFilters = { sortBy: "date_desc" as const };
-          setFilters(resetFilters);
-          onFilterChange(resetFilters);
-        }}
-        className="px-6 py-2.5 rounded-lg bg-accent/50 border border-primary/20 text-text-muted hover:text-white hover:bg-accent hover:border-primary/50 transition-all font-medium hover:shadow-lg hover:shadow-primary/10 duration-300"
-      >
-        ↺ Đặt lại
-      </button>
     </div>
   );
 };
+
+export default DocumentFilter;

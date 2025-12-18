@@ -14,6 +14,16 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+# ✨ NEW: Google OAuth Schema
+class GoogleAuthRequest(BaseModel):
+    credential: str  # JWT token from Google
+    
+class SocialAuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: "UserResponse"
+    is_new_user: bool  # True if first-time login
+
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     password: Optional[str] = None
@@ -24,6 +34,8 @@ class UserResponse(BaseModel):
     email: str
     full_name: Optional[str]
     role: UserRole
+    avatar_url: Optional[str] = None  # ✨ NEW: For Google profile picture
+    auth_provider: str = "email"  # ✨ NEW: 'email' or 'google'
     created_at: datetime
     
     class Config:

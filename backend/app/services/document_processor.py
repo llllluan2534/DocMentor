@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
-import PyPDF2
 from docx import Document as DocxDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any
+import fitz  # PyMuPDF
 import logging
 from ..models.document import Document
 from .embedding_service_gemini import EmbeddingServiceGemini
@@ -61,7 +61,7 @@ class DocumentProcessor:
                 chunks_with_metadata.append({
                     'text': chunk_text,
                     'chunk_index': idx,
-                    'page_number': 0,
+                    'page_number': self._extract_page_number_from_text(chunk_text),
                     'metadata': {
                         'file_type': document.file_type,
                         'title': document.title
@@ -122,22 +122,18 @@ class DocumentProcessor:
             raise
     
     def extract_pdf(self, file_path: str) -> str:
-        """Extract text from PDF file"""
+        """Extract text using PyMuPDF (10x faster than pdfplumber)"""
         text = ""
         try:
-            logger.info(f"📖 Opening PDF: {file_path}")
-            with open(file_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                num_pages = len(pdf_reader.pages)
-                logger.info(f"📄 PDF has {num_pages} pages")
-                
-                for page_num in range(num_pages):
-                    page = pdf_reader.pages[page_num]
-                    page_text = page.extract_text()
+            logger.info(f"📖 Opening PDF with PyMuPDF: {file_path}")
+            with fitz.open(file_path) as doc:
+                logger.info(f"📄 PDF has {len(doc)} pages")
+                for i, page in enumerate(doc):
+                    page_text = page.get_text("text")
                     if page_text:
-                        text += f"\n[Page {page_num + 1}]\n{page_text}"
-                
-            logger.info(f"✅ PDF extraction complete: {len(text)} characters")
+                        text += f"\n[Page {i + 1}]\n{page_text}"
+            
+            logger.info(f"✅ PDF extraction complete: {len(text)} chars")
             return text.strip()
         except Exception as e:
             logger.error(f"❌ Error extracting PDF: {str(e)}")
@@ -172,3 +168,12 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"❌ Error extracting TXT: {str(e)}")
             raise
+        
+    def _extract_page_number_from_text(self, chunk_text: str) -> int:
+        """Extract page number from [Page X] marker in text"""
+        import re
+        
+        match = re.search(r'\[Page (\d+)\]', chunk_text)
+        if match:
+            return int(match.group(1))
+        return 0

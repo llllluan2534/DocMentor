@@ -1,11 +1,14 @@
+// frontend/docmentor-fe/src/services/auth/authService.ts
+
 import axios from "axios";
 
 interface User {
-  id: string;
+  id: number;
   email: string;
-  name: string;
-  role: "user" | "admin";
-  avatar?: string;
+  full_name?: string;
+  avatar_url?: string;
+  role: "student" | "lecturer" | "admin";
+  authProvider?: "email" | "google"; 
 }
 
 interface LoginResponse {
@@ -15,7 +18,14 @@ interface LoginResponse {
   message?: string;
 }
 
-// 👈 ĐÃ THÊM: Định nghĩa interface cho dữ liệu đăng ký
+// ✨ NEW: Google Auth Response
+interface GoogleAuthResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
+  is_new_user: boolean;
+}
+
 interface RegisterData {
   fullName: string;
   email: string;
@@ -24,14 +34,11 @@ interface RegisterData {
 }
 
 const api = axios.create({
-  // LƯU Ý: Frontend của bạn đang dùng baseURL: "/api".
-  // Nếu bạn đang dùng Vite dev server, nó phải được proxy tới localhost:8000
-  // Nếu không có proxy, bạn nên set baseURL là "http://localhost:8000"
-  baseURL: "/api",
+  baseURL:
+    (import.meta as any).env?.VITE_API_BASE_URL || "http://localhost:8000",
   headers: {
     "Content-Type": "application/json",
-  }, // Đã giải quyết lỗi CORS trước đó bằng withCredentials: true (nếu cần cho các request khác)
-  // Nếu chỉ dùng Bearer Token, bạn không cần withCredentials ở đây
+  },
 });
 
 api.interceptors.request.use((config) => {
@@ -44,117 +51,167 @@ api.interceptors.request.use((config) => {
 });
 
 class RealAuthService {
-  // Simulate delay nếu cần (optional, backend thực không cần)
   private delay(ms: number = 0): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
-  } // Real login: Gọi POST /api/auth/login
+  }
 
+  // ✨ NEW: Google OAuth Login
+  async loginWithGoogle(credential: string): Promise<GoogleAuthResponse> {
+    console.log("🔑 Google OAuth login attempt");
+
+    try {
+      await this.delay(500);
+      const response = await api.post("/auth/google", { credential });
+
+      if (!response.data.access_token) {
+        throw new Error("Google authentication failed");
+      }
+
+      const { access_token, user, is_new_user } = response.data;
+
+      // ✅ QUAN TRỌNG: Lưu token với key đúng
+      localStorage.setItem("auth_token", access_token);
+      localStorage.setItem("user", JSON.stringify(user));
+
+      // ✅ THÊM: Clear sessionStorage để tránh conflict
+      sessionStorage.removeItem("auth_token");
+      sessionStorage.removeItem("user");
+
+      console.log("✅ Google login successful:", {
+        user: user.email,
+        isNewUser: is_new_user,
+        tokenPrefix: access_token.substring(0, 20) + "...", // Log token prefix for debugging
+      });
+
+      // ✅ THÊM: Verify token được lưu
+      console.log("🔍 Token stored:", {
+        localStorage: !!localStorage.getItem("auth_token"),
+        sessionStorage: !!sessionStorage.getItem("auth_token"),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error("❌ Google login error:", error);
+      throw new Error(
+        error.response?.data?.detail || "Google authentication failed"
+      );
+    }
+  }
+
+  // Traditional email/password login
   async login(
     email: string,
     password: string,
     rememberMe: boolean
   ): Promise<LoginResponse> {
-    console.log("🔑 Real login attempt:", { email, rememberMe });
+    console.log("🔑 Email/password login attempt:", { email, rememberMe });
 
     try {
-      await this.delay(500); // Optional delay
-
+      await this.delay(500);
       const response = await api.post("/auth/login", { email, password });
 
       if (!response.data.success) {
-        console.log(
-          "❌ Login failed:",
-          response.data.message || "Invalid credentials"
-        );
         throw new Error(
           response.data.message || "Email hoặc mật khẩu không đúng"
         );
       }
 
-      const { user, token, message } = response.data; // Store in localStorage or sessionStorage
-
+      const { user, token, message } = response.data;
       const storage = rememberMe ? localStorage : sessionStorage;
       storage.setItem("auth_token", token);
       storage.setItem("user", JSON.stringify(user));
 
-      console.log("✅ Real login successful:", {
+      console.log("✅ Email login successful:", {
         user: user.email,
         role: user.role,
-        storage: rememberMe ? "localStorage" : "sessionStorage",
       });
 
       return { success: true, user, token, message };
     } catch (error: any) {
-      console.error("❌ Real login error:", error); // Lỗi 401: Unauthorized (mật khẩu sai) sẽ được bắt ở đây
+      console.error("❌ Email login error:", error);
       throw new Error(error.response?.data?.message || "Lỗi đăng nhập");
     }
-  } // 👈 ĐÃ THÊM: Hàm đăng ký thực tế
+  }
+
   async register(data: RegisterData): Promise<void> {
-    console.log("📝 Real registration attempt:", data.email);
+    console.log("📝 Registration attempt:", data.email);
     try {
-      await this.delay(500); // Optional delay
-      // Backend API: POST /auth/register trả về Token, nhưng ở đây ta chỉ cần nó thành công
+      await this.delay(500);
       await api.post("/auth/register", data);
-      console.log("✅ Real registration successful");
+      console.log("✅ Registration successful");
     } catch (error: any) {
-      console.error("❌ Real registration error:", error); // Lỗi 409 Conflict (Email đã tồn tại) hoặc 422 (Validation) sẽ bị bắt ở đây
+      console.error("❌ Registration error:", error);
       throw new Error(
         error.response?.data?.detail?.[0]?.msg ||
           error.response?.data?.detail ||
           "Đăng ký thất bại"
       );
     }
-  } // Real logout: Gọi POST /api/auth/logout (optional), rồi clear storage
+  }
 
   async logout(): Promise<void> {
-    console.log("🚪 Real logging out...");
-    try {
-      await api.post("/auth/logout"); // Nếu backend có endpoint này
-    } catch (error) {
-      console.log("⚠️ Logout API failed, but clearing local storage");
-    } // Clear storage anyway
+    console.log("🚪 Logging out...");
     localStorage.removeItem("auth_token");
     localStorage.removeItem("user");
     sessionStorage.removeItem("auth_token");
     sessionStorage.removeItem("user");
-    console.log("✅ Real logout complete");
-  } // Check authenticated: Dùng token hoặc gọi /api/auth/me
+    console.log("✅ Logout complete");
+  }
 
   async isAuthenticated(): Promise<boolean> {
     const token = this.getToken();
+    const user = await this.getCurrentUser();
+
+    const isAuth = !!(token && user);
+    console.log("🔍 Auth check:", {
+      hasToken: !!token,
+      hasUser: !!user,
+      isAuthenticated: isAuth,
+    });
+
+    return isAuth;
+  }
+
+  async verifyToken(): Promise<boolean> {
+    const token = this.getToken();
     if (!token) {
-      console.log("🔍 No token, not authenticated");
       return false;
     }
 
     try {
-      await api.get("/auth/me"); // Verify token với backend
-      console.log("🔍 Token valid, authenticated");
+      await api.get("/auth/me");
+      console.log("✅ Token verified");
       return true;
-    } catch (error) {
-      console.log("🔍 Token invalid, clearing storage");
-      this.logout(); // Clear nếu token hết hạn
+    } catch (error: any) {
+      console.error("❌ Token verification failed:", error.message);
+
+      if (error.response?.status === 401) {
+        console.log("🔒 Token invalid, logging out");
+        await this.logout();
+        return false;
+      }
+
+      console.log("⚠️ Network error, keeping session");
       return false;
     }
-  } // Get current user: Lấy từ storage hoặc gọi /api/auth/me nếu cần fresh
+  }
 
   async getCurrentUser(): Promise<User | null> {
     const userStr =
       localStorage.getItem("user") || sessionStorage.getItem("user");
     if (!userStr) {
-      console.log("👤 No user found in storage");
       return null;
     }
 
     try {
       const user = JSON.parse(userStr);
-      console.log("👤 Current user from storage:", user.email);
+      console.log("👤 Current user:", user.email);
       return user;
     } catch (error) {
       console.error("❌ Error parsing user data:", error);
       return null;
     }
-  } // Get token
+  }
 
   getToken(): string | null {
     return (
@@ -164,4 +221,4 @@ class RealAuthService {
 }
 
 export const realAuthService = new RealAuthService();
-export type { User, LoginResponse, RegisterData }; // 👈 ĐÃ THÊM: Export RegisterData
+export type { User, LoginResponse, RegisterData, GoogleAuthResponse };

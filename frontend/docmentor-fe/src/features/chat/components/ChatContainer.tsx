@@ -1,14 +1,13 @@
-// src/features/chat/components/ChatContainer.tsx - UPDATED for Backend with Upload Logic
+// src/features/chat/components/ChatContainer.tsx
 import React, { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { FiPlus } from "react-icons/fi";
 import { ChatMessage, Conversation } from "@/types/chat.types";
 import { chatService } from "@/services/chat/chatService";
 import { queryApiService } from "@/services/api/queryApiService";
-import { documentService } from "@/services/document/documentService"; // ✨ Import DocumentService
+import { documentService } from "@/services/document/documentService";
 import { MessageList } from "./MessageList";
-import { ChatInput } from "./ChatInput";
-import { SuggestedQueries } from "./SuggestedQuestions";
+import { ChatInput } from "./ChatInput"; // ✅ Import ChatInput đã sửa
 import Button from "@/components/common/Button";
 import { useAuth } from "@/app/providers/AuthProvider";
 import HeroChat from "@/features/chat/components/HeroChat";
@@ -18,12 +17,13 @@ interface ChatContainerProps {
   sessionId: string | null;
   initialFile?: File | null;
   selectedDocuments?: Array<{ id: string; title: string }>;
+  conversations?: Conversation[];
   onOpenDocumentModal?: () => void;
   onRemoveDocument?: (docId: string) => void;
   onCreateConversationFromHeroChat?: (
     conversationId: string,
     initialMessage: string,
-    documentIds?: string[] // ✨ Cập nhật type để nhận documentIds
+    documentIds?: string[]
   ) => void;
   onNewConversation?: (conversation: Conversation) => void;
 }
@@ -33,7 +33,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   sessionId: propSessionId,
   onNewConversation,
   onCreateConversationFromHeroChat,
-  initialFile,
   selectedDocuments = [],
   onOpenDocumentModal,
   onRemoveDocument,
@@ -43,20 +42,107 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
+
   const sessionId = propSessionId || searchParams.get("sessionId");
   const contextId = conversationId || sessionId;
 
-  // --- Load lịch sử chat ---
+  // ============================================================
+  // VALIDATION FUNCTIONS
+  // ============================================================
+
+  const isValidConversation = (convId: string): boolean => {
+    const convIdNum = parseInt(convId, 10);
+    return !isNaN(convIdNum);
+  };
+
+  const isForbiddenQuery = (queryText: string): boolean => {
+    const forbiddenQueries = [
+      "Phân tích 1 tài liệu đã chọn",
+      "phân tích 1 tài liệu đã chọn",
+      "Phân tích tài liệu",
+      "phân tích tài liệu",
+      "Tóm tắt tài liệu này",
+    ];
+
+    return forbiddenQueries.some((q) =>
+      queryText.toLowerCase().includes(q.toLowerCase())
+    );
+  };
+
+  // ============================================================
+  // LOAD CHAT HISTORY
+  // ============================================================
+
   useEffect(() => {
     const loadData = async () => {
       if (contextId) {
         setIsLoading(true);
         try {
-          const history = await chatService.getChatHistory(contextId);
+          console.log("📖 Loading chat history for:", contextId);
+
+          if (contextId.startsWith("temp-")) {
+            console.log("📝 Temporary conversation, no history to load");
+            setMessages([]);
+            setIsLoading(false);
+            return;
+          }
+
+          // 1. Lấy dữ liệu từ Server
+          let history = await chatService.getChatHistory(contextId);
+          console.log("✅ Loaded messages:", history.length);
+
+          // 2. ✅ LOGIC FIX: Khôi phục file từ 'state' nếu Server trả về thiếu
+          // (Dành cho trường hợp vừa tạo conversation xong mà API chưa kịp index file)
+          const navigationState = location.state as {
+            tempAttachment?: any;
+            tempDocs?: any;
+          } | null;
+
+          if (history.length > 0 && navigationState) {
+            // Tìm tin nhắn User đầu tiên
+            const firstUserMsgIndex = history.findIndex(
+              (m) => m.sender === "user"
+            );
+
+            if (firstUserMsgIndex !== -1) {
+              const firstMsg = history[firstUserMsgIndex];
+              let hasChanges = false;
+              let updatedMsg = { ...firstMsg };
+
+              // Check 1: Khôi phục File Upload (Attachment)
+              if (!updatedMsg.attachment && navigationState.tempAttachment) {
+                console.log("🛠️ Restoring missing attachment from state");
+                updatedMsg.attachment = navigationState.tempAttachment;
+                hasChanges = true;
+              }
+
+              // Check 2: Khôi phục Tài liệu chọn sẵn (Documents)
+              if (
+                (!updatedMsg.attachedDocuments ||
+                  updatedMsg.attachedDocuments.length === 0) &&
+                navigationState.tempDocs
+              ) {
+                console.log("🛠️ Restoring missing documents from state");
+                updatedMsg.attachedDocuments = navigationState.tempDocs;
+                hasChanges = true;
+              }
+
+              // Nếu có thay đổi, cập nhật lại mảng history
+              if (hasChanges) {
+                const newHistory = [...history];
+                newHistory[firstUserMsgIndex] = updatedMsg;
+                history = newHistory;
+              }
+            }
+          }
+
           setMessages(history);
         } catch (error) {
-          console.error("Lỗi tải lịch sử chat:", error);
+          console.error("❌ Lỗi tải lịch sử chat:", error);
           setMessages([]);
         } finally {
           setIsLoading(false);
@@ -67,177 +153,243 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           const queries = await chatService.getSuggestedQueries();
           setSuggestedQueries(queries);
         } catch (error) {
-          console.error("Lỗi tải gợi ý:", error);
+          console.error("❌ Lỗi tải gợi ý:", error);
         }
       }
     };
     loadData();
-  }, [contextId]);
+  }, [contextId]); // ✅ Dependency quan trọng: location.state
 
-  // --- Khi có initialFile, tự động gửi để bắt đầu chat ---
-  useEffect(() => {
-    if (initialFile && messages.length === 0) {
-      handleSendMessage(`Phân tích file: ${initialFile.name}`, initialFile);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialFile]);
+  // ============================================================
+  // HANDLE SEND MESSAGE - MAIN FUNCTION
+  // ============================================================
 
-  // --- Logic gửi tin nhắn ---
   const handleSendMessage = async (messageText: string, file?: File) => {
-    if ((!messageText.trim() && !file) || isReplying) return;
+    if ((!messageText.trim() && !file) || isReplying) {
+      console.log("⚠️ Message empty or already sending");
+      return;
+    }
+
+    if (isForbiddenQuery(messageText)) {
+      console.error("❌ Blocked auto-generated query:", messageText);
+      alert("Vui lòng nhập câu hỏi của riêng bạn!");
+      return;
+    }
+
+    console.log("📤 Sending message:", {
+      messageText,
+      hasFile: !!file,
+      contextId,
+    });
     setIsReplying(true);
 
-    // ✨ Logic Upload File Mới (Fix lỗi 422 cho Hero Chat)
-    let uploadedDocId: number | null = null;
-    if (file) {
-      try {
-        // Upload file lên server để lấy ID
-        console.log("📂 Đang upload file:", file.name);
-        const uploadedDoc = await documentService.uploadDocument(
-          file,
-          file.name
-        );
-        uploadedDocId = Number(uploadedDoc.id);
-        console.log("✅ Upload thành công. ID:", uploadedDocId);
-      } catch (error) {
-        console.error("Upload error:", error);
-        alert("Lỗi tải file lên. Vui lòng thử lại.");
+    if (contextId && contextId.startsWith("temp-")) {
+      console.log("🔄 Converting temp conversation to real");
+      await handleCreateNewConversation(messageText, file);
+      return;
+    }
+
+    if (contextId && messages.length > 0) {
+      console.log("📝 Sending to existing conversation:", contextId);
+
+      const currentConvId = parseInt(contextId, 10);
+      if (isNaN(currentConvId)) {
+        console.error("❌ Invalid conversation ID format:", contextId);
+        alert("Lỗi: ID conversation không hợp lệ");
         setIsReplying(false);
         return;
       }
-    }
 
-    // ✨ CASE 1: Chưa có conversation, cần tạo mới
-    if (!contextId && messages.length === 0) {
-      if (!user) {
-        // --- Guest Session ---
-        try {
-          const { sessionId: newSessionId } =
-            await chatService.startGuestSession({
-              message: messageText,
-              file: file || undefined,
-            });
-
-          setSearchParams({ sessionId: newSessionId });
-          const history = await chatService.getChatHistory(newSessionId);
-          setMessages(history);
-        } catch (error) {
-          console.error("Lỗi khởi tạo Guest session:", error);
-          alert("Không thể bắt đầu phiên chat. Vui lòng thử lại.");
-          setIsReplying(false);
-        } finally {
-          setIsReplying(false);
-        }
+      if (file) {
+        await handleSendMessageWithFile(messageText, file, currentConvId);
       } else {
-        // --- User Conversation ---
-        try {
-          // Lấy ID các tài liệu đã chọn từ Modal
-          const docIds = selectedDocuments
-            .map((d) => parseInt(d.id, 10))
-            .filter((id) => !isNaN(id));
-
-          // ✨ Thêm ID của file vừa upload (nếu có) vào danh sách
-          if (uploadedDocId !== null) {
-            docIds.push(uploadedDocId);
-          }
-
-          // Chuyển mảng số thành mảng chuỗi để tương thích với documentIds?: string[] của callback
-          const stringDocIds = docIds.map(String);
-
-          const newConversation = await chatService.createNewConversation({
-            title: messageText.substring(0, 50) || "Cuộc trò chuyện mới",
-            initialMessage: messageText,
-            file: undefined, // File đã được xử lý upload ở trên
-            documentIds: docIds, // Gửi mảng ID đầy đủ
-          });
-          const newConvId = newConversation.id;
-
-          if (onCreateConversationFromHeroChat) {
-            onCreateConversationFromHeroChat(
-              newConvId,
-              messageText,
-              stringDocIds
-            );
-          } else if (onNewConversation) {
-            onNewConversation(newConversation);
-          }
-
-          const history = await chatService.getChatHistory(newConvId);
-          setMessages(history);
-        } catch (error) {
-          console.error("Lỗi tạo User conversation:", error);
-          alert("Không thể tạo cuộc trò chuyện mới.");
-          setIsReplying(false);
-        } finally {
-          setIsReplying(false);
-        }
+        await handleSendMessageTextOnly(messageText, currentConvId);
       }
       return;
     }
 
-    // ✨ CASE 2: Có conversation rồi
+    console.log("🆕 Creating new conversation");
+    await handleCreateNewConversation(messageText, file);
+  };
+
+  // ============================================================
+  // HELPER FUNCTIONS: CREATE NEW CONVERSATION (OPTIMISTIC + STATE PASSING)
+  // ============================================================
+
+  const handleCreateNewConversation = async (
+    messageText: string,
+    file?: File
+  ) => {
+    // 1. TẠO TIN NHẮN GIẢ LẬP (Optimistic Update)
+    const tempId = `msg-temp-${Date.now()}`;
+    const userMessage: ChatMessage = {
+      id: tempId,
+      text: messageText,
+      sender: "user",
+      timestamp: new Date().toISOString(),
+      status: "sending",
+      // Hiển thị file ngay lập tức
+      attachment: file
+        ? {
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+          }
+        : undefined,
+      attachedDocuments:
+        selectedDocuments.length > 0 ? selectedDocuments : undefined,
+    };
+
+    setMessages([userMessage]);
+
+    // 2. Upload File & Create Conversation
+    let uploadedDocId: number | null = null;
     if (file) {
-      await handleSendMessageWithFile(messageText, file);
+      try {
+        console.log("📂 Uploading file:", file.name);
+        const uploadedDoc = await documentService.uploadDocument(
+          file,
+          file.name
+        );
+        uploadedDocId = parseInt(String(uploadedDoc.id), 10);
+        console.log("✅ File uploaded, ID:", uploadedDocId);
+      } catch (error) {
+        console.error("❌ Upload error:", error);
+        alert("Lỗi tải file lên. Vui lòng thử lại.");
+        setIsReplying(false);
+        setMessages([]); // Clear message lỗi
+        return;
+      }
+    }
+
+    if (!user) {
+      try {
+        console.log("👤 Creating guest session");
+        const { sessionId: newSessionId } = await chatService.startGuestSession(
+          {
+            message: messageText,
+            file: file || undefined,
+          }
+        );
+        setSearchParams({ sessionId: newSessionId });
+        const history = await chatService.getChatHistory(newSessionId);
+        setMessages(history);
+      } catch (error) {
+        console.error("❌ Guest session error:", error);
+        alert("Không thể bắt đầu phiên chat.");
+        setMessages([]);
+      } finally {
+        setIsReplying(false);
+      }
     } else {
-      await handleSendMessageTextOnly(messageText);
+      try {
+        console.log("👤 Creating user conversation");
+
+        const docIds = selectedDocuments
+          .map((d) => parseInt(d.id, 10))
+          .filter((id) => !isNaN(id));
+
+        if (uploadedDocId !== null) {
+          docIds.push(uploadedDocId);
+        }
+
+        const newConversation = await chatService.createNewConversation({
+          title: messageText.substring(0, 50) || "Cuộc trò chuyện mới",
+          initialMessage: messageText,
+          documentIds: docIds,
+        });
+
+        const newConvId = newConversation.id;
+
+        if (onCreateConversationFromHeroChat) {
+          onCreateConversationFromHeroChat(
+            newConvId,
+            messageText,
+            docIds.map(String)
+          );
+        } else if (onNewConversation) {
+          onNewConversation(newConversation);
+        }
+
+        // ✅ QUAN TRỌNG: Truyền state chứa thông tin file qua route mới
+        // Để useEffect ở trang mới có thể đọc và khôi phục hiển thị file
+        navigate(`/user/chat/${newConvId}`, {
+          replace: true,
+          state: {
+            tempAttachment: file
+              ? {
+                  fileName: file.name,
+                  fileSize: file.size,
+                  fileType: file.type,
+                }
+              : null,
+            tempDocs: selectedDocuments.length > 0 ? selectedDocuments : null,
+          },
+        });
+      } catch (error) {
+        console.error("❌ Create conversation error:", error);
+        alert("Không thể tạo cuộc trò chuyện mới.");
+        setMessages([]);
+      } finally {
+        setIsReplying(false);
+      }
     }
   };
 
-  // ✨ UPDATED: Send Message With File
-  const handleSendMessageWithFile = async (messageText: string, file: File) => {
-    setIsReplying(true);
+  // ============================================================
+  // HANDLE SEND MESSAGE WITH FILE
+  // ============================================================
+
+  const handleSendMessageWithFile = async (
+    messageText: string,
+    file: File,
+    conversationId: number
+  ) => {
     const userMessage: ChatMessage = {
       id: `msg-user-${Date.now()}`,
       text: messageText || `Phân tích file: ${file.name}`,
       sender: "user",
       timestamp: new Date().toISOString(),
-      status: "sending", // Đổi status thành sending để hiển thị UI loading nếu cần
+      status: "sending",
       attachment: {
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type,
       },
+      attachedDocuments:
+        selectedDocuments.length > 0 ? selectedDocuments : undefined,
     };
 
-    // Show user message immediately
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      // ✨ 1. Upload file trước
-      console.log("📂 Đang upload file trong chat:", file.name);
+      console.log("📂 Uploading file in conversation:", file.name);
       const uploadedDoc = await documentService.uploadDocument(file, file.name);
-      const uploadedDocId = Number(uploadedDoc.id);
-      console.log("✅ Upload chat file thành công. ID:", uploadedDocId);
+      const uploadedDocId = parseInt(String(uploadedDoc.id), 10);
 
-      // ✨ 2. Tổng hợp ID tài liệu
       const docIds = selectedDocuments
         .map((d) => parseInt(d.id, 10))
         .filter((id) => !isNaN(id));
 
-      if (conversationId) {
-        docIds.push(parseInt(conversationId, 10));
-      }
-
-      // Thêm ID file mới vào
       if (!isNaN(uploadedDocId)) {
         docIds.push(uploadedDocId);
       }
 
-      // ✨ 3. Gửi query
+      console.log("📤 Sending query with docs:", docIds);
+
       const response = await queryApiService.sendQuery(
         messageText || `Phân tích file: ${file.name}`,
         docIds,
-        5
+        5,
+        conversationId
       );
 
-      // Update user message status to sent
       setMessages((prev) =>
         prev.map((m) =>
           m.id === userMessage.id ? { ...m, status: "sent" } : m
         )
       );
 
-      // Add AI response
       const aiMessage: ChatMessage = {
         id: `msg-ai-${response.query_id}`,
         text: response.answer,
@@ -246,9 +398,19 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       };
 
       setMessages((prev) => [...prev, aiMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("❌ Send file error:", error);
-      alert("Lỗi gửi file. Vui lòng thử lại.");
+
+      if (
+        error.status === 404 &&
+        error.detail?.includes("Conversation not found")
+      ) {
+        alert("Cuộc trò chuyện không tồn tại. Đang tạo cuộc trò chuyện mới...");
+        await handleCreateNewConversation(messageText, file);
+      } else {
+        alert("Lỗi gửi file.");
+      }
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === userMessage.id ? { ...m, status: "error" } : m
@@ -259,35 +421,40 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     }
   };
 
-  // ✨ UPDATED: Send Message Text Only
-  const handleSendMessageTextOnly = async (messageText: string) => {
-    if (!contextId) return;
+  // ============================================================
+  // HANDLE SEND MESSAGE TEXT ONLY
+  // ============================================================
 
+  const handleSendMessageTextOnly = async (
+    messageText: string,
+    conversationId?: number
+  ) => {
     const userMessage: ChatMessage = {
       id: `msg-user-${Date.now()}`,
       text: messageText,
       sender: "user",
       timestamp: new Date().toISOString(),
       status: "sent",
+      attachedDocuments:
+        selectedDocuments.length > 0 ? selectedDocuments : undefined,
     };
 
-    // Show user message immediately
     setMessages((prev) => [...prev, userMessage]);
-    setIsReplying(true);
 
     try {
-      // ✨ UPDATED: Gửi query với document IDs
       const docIds = selectedDocuments
         .map((d) => parseInt(d.id, 10))
         .filter((id) => !isNaN(id));
 
-      if (conversationId) {
-        docIds.push(parseInt(conversationId, 10));
-      }
+      console.log("📤 Sending text query with docs:", docIds);
 
-      const response = await queryApiService.sendQuery(messageText, docIds, 5);
+      const response = await queryApiService.sendQuery(
+        messageText,
+        docIds,
+        5,
+        conversationId
+      );
 
-      // ✨ UPDATED: Add AI response
       const aiMessage: ChatMessage = {
         id: `msg-ai-${response.query_id}`,
         text: response.answer,
@@ -296,27 +463,42 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       };
 
       setMessages((prev) => [...prev, aiMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("❌ Send message error:", error);
-      alert("Lỗi gửi tin nhắn. Vui lòng thử lại.");
+
+      if (
+        error.status === 404 &&
+        error.detail?.includes("Conversation not found")
+      ) {
+        alert("Cuộc trò chuyện không tồn tại. Đang tạo cuộc trò chuyện mới...");
+        setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+        await handleCreateNewConversation(messageText);
+      } else {
+        alert("Lỗi gửi tin nhắn.");
+      }
     } finally {
       setIsReplying(false);
     }
   };
 
+  // ============================================================
+  // RENDER
+  // ============================================================
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-full">
-        <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+        <div className="w-10 h-10 border-4 rounded-full border-primary/30 border-t-primary animate-spin"></div>
+        <p className="mt-4 text-text-muted">Đang tải cuộc trò chuyện...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full relative">
-      {/* ✨ Selected Documents Header */}
+    <div className="relative flex flex-col h-full">
+      {/* Selected Documents Header */}
       {selectedDocuments.length > 0 && (
-        <div className="border-b border-primary/20 bg-accent/40 backdrop-blur-sm p-4">
+        <div className="p-4 border-b border-primary/20 bg-accent/40 backdrop-blur-sm">
           <div className="max-w-6xl mx-auto">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm text-text-muted">
@@ -330,8 +512,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 onClick={onOpenDocumentModal}
                 className="text-sm px-3 py-1.5 bg-primary/20 border border-primary/30 rounded-lg text-primary hover:bg-primary/30 transition-colors flex items-center gap-2"
               >
-                <FiPlus className="w-4 h-4" />
-                Thêm tài liệu
+                <FiPlus className="w-4 h-4" /> Thêm tài liệu
               </Button>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -340,10 +521,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                   key={doc.id}
                   className="bg-accent/80 border border-primary/30 rounded-lg px-3 py-1.5 flex items-center gap-2 text-sm text-white"
                 >
-                  <span className="truncate max-w-xs">{doc.title}</span>
+                  <span className="max-w-xs truncate">{doc.title}</span>
                   <button
                     onClick={() => onRemoveDocument?.(doc.id)}
-                    className="text-text-muted hover:text-white transition-colors font-bold"
+                    className="font-bold transition-colors text-text-muted hover:text-white"
+                    title="Xóa tài liệu"
                   >
                     ✕
                   </button>
@@ -360,22 +542,15 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       ) : (
         <>
           <div className="flex-1 overflow-y-auto">
-            {messages.length > 0 ? (
-              <MessageList messages={messages} isReplying={isReplying} />
-            ) : (
-              <div className="h-full flex items-center justify-center">
-                <SuggestedQueries
-                  queries={suggestedQueries}
-                  onQueryClick={(q) => handleSendMessage(q)}
-                  isLoading={isReplying}
-                />
-              </div>
-            )}
+            <MessageList messages={messages} isReplying={isReplying} />
           </div>
+
+          {/* ✅ CẬP NHẬT: Truyền selectedDocuments xuống ChatInput */}
           <ChatInput
             onSendMessage={handleSendMessage}
             isLoading={isReplying}
             onOpenDocumentModal={onOpenDocumentModal}
+            selectedDocuments={selectedDocuments} // ✨ TRUYỀN PROP NÀY ĐỂ KÍCH HOẠT HOOK CHECK STATUS
           />
         </>
       )}

@@ -1,4 +1,3 @@
-// General API client
 // src/services/api/queryApiService.ts - Real API Service with Axios
 
 import axios, { AxiosInstance, AxiosError } from "axios";
@@ -81,7 +80,7 @@ class QueryApiService {
 
   constructor() {
     this.apiBaseUrl =
-      (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+      (import.meta as any).env?.VITE_API_BASE_URL || "http://localhost:8000";
 
     this.axiosInstance = axios.create({
       baseURL: this.apiBaseUrl,
@@ -89,16 +88,26 @@ class QueryApiService {
       headers: {
         "Content-Type": "application/json",
       },
-      withCredentials: true,
+      withCredentials: false,
     });
 
-    // ✨ Request Interceptor - Add Auth Token
+    // Request Interceptor
     this.axiosInstance.interceptors.request.use(
       (config) => {
         const token = this.getAuthToken();
+
+        console.log("🔐 Query API Request:", {
+          url: config.url,
+          hasToken: !!token,
+          tokenPrefix: token ? token.substring(0, 20) + "..." : "none",
+        });
+
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
+        } else {
+          console.warn("⚠️ No auth token found for query!");
         }
+
         return config;
       },
       (error) => {
@@ -107,7 +116,7 @@ class QueryApiService {
       }
     );
 
-    // ✨ Response Interceptor - Handle Errors
+    // Response Interceptor
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       (error: AxiosError) => {
@@ -118,24 +127,25 @@ class QueryApiService {
             (error.response?.data as any)?.detail || error.response?.statusText,
         };
 
-        console.error("API Error:", apiError);
+        console.error("❌ Query API Error:", {
+          ...apiError,
+          url: error.config?.url,
+          headers: error.config?.headers,
+        });
 
-        // Handle 401 Unauthorized
         if (error.response?.status === 401) {
-          console.warn("Unauthorized: redirecting to login");
-          // TODO: Redirect to login page
-          localStorage.removeItem("auth_token");
-          sessionStorage.removeItem("auth_token");
+          console.warn("🔒 Unauthorized: Token invalid or expired");
+          console.log("Current token:", this.getAuthToken()?.substring(0, 20));
+
+          // Don't auto-redirect on 401 - let component handle it
+          // localStorage.removeItem("auth_token");
+          // sessionStorage.removeItem("auth_token");
         }
 
         return Promise.reject(apiError);
       }
     );
   }
-
-  // ============================================================
-  // HELPER METHODS
-  // ============================================================
 
   private getAuthToken(): string | null {
     return (
@@ -154,22 +164,28 @@ class QueryApiService {
     };
   }
 
-  // ============================================================
-  // QUERY OPERATIONS
-  // ============================================================
-
   /**
-   * 📝 Send a query to AI/RAG service
+   * ✅ UPDATED: Send query with optional conversation_id
    */
   async sendQuery(
     queryText: string,
     documentIds: number[],
-    maxResults: number = 5
+    maxResults: number = 5,
+    conversationId?: number // ✅ NEW PARAMETER
   ): Promise<QueryResponse> {
     try {
-      console.log("📤 Sending query:", { queryText, documentIds });
+      console.log("📤 Sending query:", {
+        queryText,
+        documentIds,
+        conversationId,
+      });
 
-      const response = await this.axiosInstance.post<QueryResponse>("/query/", {
+      // ✅ Add conversation_id as query parameter if provided
+      const url = conversationId
+        ? `/query/?conversation_id=${conversationId}`
+        : "/query/";
+
+      const response = await this.axiosInstance.post<QueryResponse>(url, {
         query_text: queryText,
         document_ids: documentIds,
         max_results: maxResults,
@@ -183,9 +199,6 @@ class QueryApiService {
     }
   }
 
-  /**
-   * 📋 Get query history with filters and pagination
-   */
   async getQueryHistory(params?: HistoryParams): Promise<QueryHistory> {
     try {
       console.log("📤 Fetching query history:", params);
@@ -213,9 +226,6 @@ class QueryApiService {
     }
   }
 
-  /**
-   * 🔍 Get details of a single query
-   */
   async getQueryDetail(queryId: number): Promise<QueryResponse> {
     try {
       console.log("📤 Fetching query detail:", queryId);
@@ -232,9 +242,6 @@ class QueryApiService {
     }
   }
 
-  /**
-   * 🗑️ Delete a query
-   */
   async deleteQuery(
     queryId: number
   ): Promise<{ message: string; deleted_id: number }> {

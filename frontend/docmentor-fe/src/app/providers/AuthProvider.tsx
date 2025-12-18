@@ -1,3 +1,4 @@
+// src/app/providers/AuthProvider.tsx
 import React, {
   createContext,
   useContext,
@@ -5,24 +6,11 @@ import React, {
   useEffect,
   ReactNode,
 } from "react";
-// Đã thêm RegisterData để import từ authService sau này, nhưng định nghĩa tạm ở đây
 import {
   realAuthService,
   User,
   RegisterData,
-} from "../../services/auth/authService"; // Import User và RegisterData
-
-// --- Định nghĩa interface RegisterData (Cần có trong authService.ts) ---
-// *LƯU Ý: Hiện tại tôi giả định cấu trúc này. Bạn cần đảm bảo cấu trúc này có trong authService.ts*
-/*
-interface RegisterData {
-  fullName: string;
-  email: string;
-  username: string;
-  password: string;
-}
-*/
-// ----------------------------------------------------------------------
+} from "../../services/auth/authService";
 
 interface AuthContextType {
   user: User | null;
@@ -33,8 +21,8 @@ interface AuthContextType {
     password: string,
     rememberMe: boolean
   ) => Promise<void>;
-  logout: () => Promise<void>; // Làm logout async để phù hợp với real service
-  // 👈 ĐÃ THÊM: Định nghĩa hàm register
+  loginWithGoogle: (credential: string) => Promise<void>;
+  logout: () => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
 }
 
@@ -55,22 +43,26 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false); // Thêm state riêng để track auth status
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
   useEffect(() => {
-    // Check if user is already logged in (async vì real service dùng API verify)
     const initAuth = async () => {
       try {
+        const token = realAuthService.getToken();
         const currentUser = await realAuthService.getCurrentUser();
-        if (currentUser) {
+
+        if (token && currentUser) {
+          console.log("✅ User authenticated:", currentUser.email);
           setUser(currentUser);
-          const authStatus = await realAuthService.isAuthenticated(); // Verify token với backend
-          setIsAuthenticated(authStatus);
+          setIsAuthenticated(true);
         } else {
           setIsAuthenticated(false);
+          setUser(null);
         }
       } catch (error) {
-        console.error("Error initializing auth:", error);
+        console.error("❌ Error initializing auth:", error);
         setIsAuthenticated(false);
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -79,6 +71,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     initAuth();
   }, []);
 
+  // Traditional email/password login
   const login = async (
     email: string,
     password: string,
@@ -87,40 +80,67 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const response = await realAuthService.login(email, password, rememberMe);
       setUser(response.user);
-      setIsAuthenticated(true); // Set auth status sau login thành công
+      setIsAuthenticated(true);
     } catch (error: any) {
-      console.error("Login error:", error);
-      throw error; // Re-throw để component gọi login handle error
+      console.error("❌ Login error:", error);
+      throw error;
     }
-  }; // 👈 ĐÃ THÊM: Implement hàm register
+  };
+
+  // ✨ NEW: Google OAuth login
+  const loginWithGoogle = async (credential: string) => {
+    try {
+      setIsLoading(true); // Bật loading
+
+      // 1. Gọi API Backend để đổi credential lấy User Info
+      const response = await realAuthService.loginWithGoogle(credential);
+
+      // 2. Cập nhật State cho toàn bộ ứng dụng
+      setUser(response.user);
+      setIsAuthenticated(true);
+
+      console.log("✅ Auth Provider State Updated:", response.user.email);
+    } catch (error: any) {
+      console.error("❌ Google login error in Provider:", error);
+      throw error; // Ném lỗi ra để LoginPage hiển thị thông báo
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const register = async (data: RegisterData) => {
     try {
-      await realAuthService.register(data); // Không tự động đăng nhập, chỉ hoàn thành việc đăng ký.
+      await realAuthService.register(data);
     } catch (error: any) {
-      console.error("Registration error:", error);
-      throw error; // Re-throw để RegisterPage.tsx handle error
+      console.error("❌ Registration error:", error);
+      throw error;
     }
   };
 
   const logout = async () => {
     try {
-      await realAuthService.logout(); // Gọi API logout nếu có
+      await realAuthService.logout();
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error("❌ Logout error:", error);
     } finally {
       setUser(null);
       setIsAuthenticated(false);
     }
   };
 
-  const value: AuthContextType = {
-    user,
-    isAuthenticated,
-    isLoading,
-    login,
-    logout,
-    register, // 👈 ĐÃ THÊM: Thêm hàm register vào Context value
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated,
+        isLoading,
+        login,
+        loginWithGoogle, // ✨ NEW
+        logout,
+        register,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };
