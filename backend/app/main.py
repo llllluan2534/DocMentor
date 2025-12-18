@@ -4,6 +4,10 @@ from .database import engine, Base
 from .config import settings
 from .routers import auth, documents, query, analysis, analytics, conversations, guest, user_dashboard
 import os
+import logging
+
+logging.basicConfig()
+logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
 
 app = FastAPI(
     title="DocMentor API",
@@ -14,11 +18,25 @@ app = FastAPI(
 )
 
 allowed_origins = [
-    "http://localhost:3000",
+    # Local development
     "http://localhost:5173",
+    "http://127.0.0.1:5173",
     "http://localhost:5174",
-    "https://docmentor-api.onrender.com",  # URL Render của bạn
+
+    # Production frontend
+    "https://docmentor-fe.vercel.app",
+
+    # Backend (Render)
+    "https://docmentor-api.onrender.com",
 ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Thêm FRONTEND_URL từ env nếu có
 if os.getenv("FRONTEND_URL"):
