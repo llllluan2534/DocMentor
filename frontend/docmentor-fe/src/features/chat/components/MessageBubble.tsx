@@ -1,19 +1,18 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import {
   FiCopy,
-  FiShare2,
   FiThumbsUp,
   FiThumbsDown,
-  FiFileText,
   FiFile,
   FiBookOpen,
   FiEdit3,
   FiCheck,
-  FiX,
   FiExternalLink,
+  FiUser,
+  FiCpu,
 } from "react-icons/fi";
 
-// Types
+// --- TYPES ---
 interface SourceReference {
   documentId: string;
   documentTitle: string;
@@ -26,16 +25,9 @@ interface ChatMessage {
   text: string;
   sender: "user" | "ai";
   timestamp: string;
-  status?: "sent" | "error" | "sending" | "loading";
-  attachment?: {
-    fileName: string;
-    fileSize: number;
-    fileType: string;
-  };
-  attachedDocuments?: Array<{
-    id: string;
-    title: string;
-  }>;
+  status?: "sending" | "sent" | "error" | "loading";
+  attachment?: { fileName: string; fileSize: number; fileType: string };
+  attachedDocuments?: Array<{ id: string; title: string }>;
   sources?: SourceReference[];
 }
 
@@ -44,385 +36,7 @@ interface MessageBubbleProps {
   onEditMessage?: (messageId: string, newText: string) => void;
 }
 
-// Utility functions
-const formatBytes = (bytes: number, decimals = 2) => {
-  if (bytes === 0) return "0 Bytes";
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
-};
-
-const getFileIcon = (fileName: string, isUserBubble: boolean) => {
-  const name = fileName || "";
-  if (name.toLowerCase().endsWith("pdf"))
-    return (
-      <FiFileText
-        className={`w-5 h-5 ${isUserBubble ? "text-white" : "text-red-500"}`}
-      />
-    );
-  if (name.match(/\.(doc|docx)$/i))
-    return (
-      <FiFileText
-        className={`w-5 h-5 ${isUserBubble ? "text-white" : "text-blue-500"}`}
-      />
-    );
-  return (
-    <FiFile
-      className={`w-5 h-5 ${isUserBubble ? "text-white/90" : "text-gray-500"}`}
-    />
-  );
-};
-
-// Markdown Parser Component
-const MarkdownRenderer: React.FC<{
-  content: string;
-  isUser: boolean;
-  sources?: SourceReference[];
-}> = ({ content, isUser, sources = [] }) => {
-  const renderContent = () => {
-    const lines = content.split("\n");
-    const elements: React.ReactNode[] = [];
-    let i = 0;
-    let elementCounter = 0; // ✅ Unique key counter
-
-    while (i < lines.length) {
-      const line = lines[i];
-      const currentKey = `element-${elementCounter++}`; // ✅ Generate unique key
-
-      // Headers
-      if (line.startsWith("### ")) {
-        elements.push(
-          <h3
-            key={currentKey}
-            className={`text-lg font-bold mt-4 mb-2 ${
-              isUser ? "text-white" : "text-gray-900 dark:text-gray-100"
-            }`}
-          >
-            {parseInlineFormatting(line.substring(4), isUser, sources)}
-          </h3>
-        );
-        i++;
-        continue;
-      }
-
-      if (line.startsWith("## ")) {
-        elements.push(
-          <h2
-            key={currentKey}
-            className={`text-xl font-bold mt-5 mb-3 ${
-              isUser ? "text-white" : "text-gray-900 dark:text-gray-100"
-            }`}
-          >
-            {parseInlineFormatting(line.substring(3), isUser, sources)}
-          </h2>
-        );
-        i++;
-        continue;
-      }
-
-      // Code blocks
-      if (line.startsWith("```")) {
-        const codeLines: string[] = [];
-        const lang = line.substring(3).trim();
-        const codeStartKey = currentKey;
-        i++;
-        while (i < lines.length && !lines[i].startsWith("```")) {
-          codeLines.push(lines[i]);
-          i++;
-        }
-        elements.push(
-          <div key={codeStartKey} className="my-4">
-            <div
-              className={`text-xs px-3 py-1 rounded-t-lg font-mono ${
-                isUser
-                  ? "bg-black/30 text-blue-200"
-                  : "bg-gray-800 text-gray-300"
-              }`}
-            >
-              {lang || "code"}
-            </div>
-            <pre
-              className={`p-4 rounded-b-lg overflow-x-auto ${
-                isUser ? "bg-black/40 text-white" : "bg-gray-900 text-gray-100"
-              }`}
-            >
-              <code className="font-mono text-sm">{codeLines.join("\n")}</code>
-            </pre>
-          </div>
-        );
-        i++;
-        continue;
-      }
-
-      // Tables
-      if (line.includes("|") && line.trim().startsWith("|")) {
-        const tableLines: string[] = [];
-        const tableStartKey = currentKey;
-        while (i < lines.length && lines[i].includes("|")) {
-          tableLines.push(lines[i]);
-          i++;
-        }
-
-        const rows = tableLines.map((l) =>
-          l
-            .split("|")
-            .map((cell) => cell.trim())
-            .filter(Boolean)
-        );
-
-        if (rows.length > 0) {
-          elements.push(
-            <div key={tableStartKey} className="my-4 overflow-x-auto">
-              <table
-                className={`min-w-full border-collapse ${
-                  isUser
-                    ? "border border-white/30"
-                    : "border border-gray-300 dark:border-gray-600"
-                }`}
-              >
-                <thead
-                  className={
-                    isUser ? "bg-white/20" : "bg-gray-100 dark:bg-gray-700"
-                  }
-                >
-                  <tr>
-                    {rows[0].map((header, idx) => (
-                      <th
-                        key={idx}
-                        className={`px-4 py-2 text-left text-sm font-semibold border ${
-                          isUser
-                            ? "border-white/30 text-white"
-                            : "border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
-                        }`}
-                      >
-                        {header}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.slice(2).map((row, rowIdx) => (
-                    <tr
-                      key={rowIdx}
-                      className={
-                        isUser
-                          ? "hover:bg-white/10"
-                          : "hover:bg-gray-50 dark:hover:bg-gray-800"
-                      }
-                    >
-                      {row.map((cell, cellIdx) => (
-                        <td
-                          key={cellIdx}
-                          className={`px-4 py-2 text-sm border ${
-                            isUser
-                              ? "border-white/30 text-white/90"
-                              : "border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
-                          }`}
-                        >
-                          {parseInlineFormatting(cell, isUser)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          );
-        }
-        continue;
-      }
-
-      // Unordered lists
-      if (line.match(/^[•\-\*]\s+/)) {
-        const listItems: string[] = [];
-        const listStartKey = currentKey;
-        while (i < lines.length && lines[i].match(/^[•\-\*]\s+/)) {
-          listItems.push(lines[i].replace(/^[•\-\*]\s+/, ""));
-          i++;
-        }
-        elements.push(
-          <ul
-            key={listStartKey}
-            className={`my-3 space-y-2 ${
-              isUser ? "text-white/95" : "text-gray-800 dark:text-gray-200"
-            }`}
-          >
-            {listItems.map((item, idx) => (
-              <li
-                key={`${listStartKey}-item-${idx}`}
-                className="flex items-start gap-2"
-              >
-                <span
-                  className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    isUser ? "bg-white/70" : "bg-blue-500"
-                  }`}
-                />
-                <span className="text-[15px] leading-relaxed">
-                  {parseInlineFormatting(item, isUser, sources)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        );
-        continue;
-      }
-
-      // Ordered lists
-      if (line.match(/^\d+\.\s+/)) {
-        const listItems: string[] = [];
-        const listStartKey = currentKey;
-        while (i < lines.length && lines[i].match(/^\d+\.\s+/)) {
-          listItems.push(lines[i].replace(/^\d+\.\s+/, ""));
-          i++;
-        }
-        elements.push(
-          <ol
-            key={listStartKey}
-            className={`my-3 space-y-2 ${
-              isUser ? "text-white/95" : "text-gray-800 dark:text-gray-200"
-            }`}
-          >
-            {listItems.map((item, idx) => (
-              <li
-                key={`${listStartKey}-item-${idx}`}
-                className="flex items-start gap-3"
-              >
-                <span
-                  className={`font-semibold flex-shrink-0 ${
-                    isUser
-                      ? "text-white/80"
-                      : "text-blue-600 dark:text-blue-400"
-                  }`}
-                >
-                  {idx + 1}.
-                </span>
-                <span className="text-[15px] leading-relaxed">
-                  {parseInlineFormatting(item, isUser, sources)}
-                </span>
-              </li>
-            ))}
-          </ol>
-        );
-        continue;
-      }
-
-      // Horizontal rules
-      if (line.match(/^━{3,}$/)) {
-        elements.push(
-          <hr
-            key={currentKey}
-            className={`my-4 border-t-2 ${
-              isUser
-                ? "border-white/30"
-                : "border-gray-300 dark:border-gray-600"
-            }`}
-          />
-        );
-        i++;
-        continue;
-      }
-
-      // Regular paragraphs
-      if (line.trim()) {
-        elements.push(
-          <p
-            key={currentKey}
-            className={`text-[15px] leading-relaxed mb-3 ${
-              isUser ? "text-white/95" : "text-gray-800 dark:text-gray-200"
-            }`}
-          >
-            {parseInlineFormatting(line, isUser, sources)}
-          </p>
-        );
-      }
-
-      i++;
-    }
-
-    return elements;
-  };
-
-  return <div className="space-y-1">{renderContent()}</div>;
-};
-
-// ✅ Enhanced inline formatting with tooltip support
-const parseInlineFormatting = (
-  text: string,
-  isUser: boolean,
-  sources: SourceReference[] = []
-) => {
-  const parts: React.ReactNode[] = [];
-  let currentText = "";
-  let i = 0;
-  let partCounter = 0;
-
-  while (i < text.length) {
-    // Bold text **text**
-    if (text.substring(i, i + 2) === "**") {
-      if (currentText) {
-        parts.push(<span key={`text-${partCounter++}`}>{currentText}</span>);
-        currentText = "";
-      }
-      i += 2;
-      let boldText = "";
-      while (i < text.length && text.substring(i, i + 2) !== "**") {
-        boldText += text[i];
-        i++;
-      }
-      parts.push(
-        <strong key={`bold-${partCounter++}`} className="font-semibold">
-          {boldText}
-        </strong>
-      );
-      i += 2;
-      continue;
-    }
-
-    // ✅ Citations [1], [2], [1, 2] with tooltip
-    if (text[i] === "[" && text.substring(i).match(/^\[\d+(?:,\s*\d+)*\]/)) {
-      if (currentText) {
-        parts.push(<span key={`text-${partCounter++}`}>{currentText}</span>);
-        currentText = "";
-      }
-      const match = text.substring(i).match(/^\[(\d+(?:,\s*\d+)*)\]/);
-      if (match) {
-        const citation = match[1];
-        const citationNumbers = citation
-          .split(",")
-          .map((n) => parseInt(n.trim()));
-
-        // Get source info for tooltip
-        const citationSources = citationNumbers
-          .map((num) => sources[num - 1])
-          .filter(Boolean);
-
-        parts.push(
-          <CitationBadge
-            key={`cite-${partCounter++}`}
-            citation={citation}
-            sources={citationSources}
-            isUser={isUser}
-          />
-        );
-        i += match[0].length;
-        continue;
-      }
-    }
-
-    currentText += text[i];
-    i++;
-  }
-
-  if (currentText) {
-    parts.push(<span key={`text-${partCounter++}`}>{currentText}</span>);
-  }
-
-  return parts;
-};
-
-// ✅ NEW: Citation Badge with Tooltip
+// 1. Citation Badge (Fix Z-Index & Style)
 const CitationBadge: React.FC<{
   citation: string;
   sources: SourceReference[];
@@ -430,509 +44,367 @@ const CitationBadge: React.FC<{
 }> = ({ citation, sources, isUser }) => {
   const [showTooltip, setShowTooltip] = useState(false);
 
-  // Only show single number if it's just one citation
-  const displayText = citation.includes(",") ? citation : citation;
-
   return (
     <span
-      className="relative inline-block"
+      className="relative inline-block align-baseline mx-0.5"
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
       <sup
-        className={`mx-0.5 px-1.5 py-0.5 text-xs font-medium rounded cursor-help transition-colors ${
-          isUser
-            ? "bg-white/30 text-white hover:bg-white/40"
-            : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/40"
-        }`}
+        className={`px-1.5 py-0.5 text-[10px] font-bold rounded-full cursor-help transition-all ${isUser ? "bg-white/30 text-white" : "bg-primary text-white hover:bg-primary/80"}`}
       >
-        {displayText}
+        {citation}
       </sup>
-
-      {/* ✅ Tooltip */}
-      {showTooltip && sources.length > 0 && (
-        <div
-          className="absolute z-50 p-3 mb-2 text-xs text-white -translate-x-1/2 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl pointer-events-none bottom-full left-1/2 w-72 dark:bg-gray-800"
-          style={{ animation: "fadeIn 0.2s ease-out" }}
-        >
-          <div className="space-y-2">
-            {sources.map((source, idx) => (
-              <div key={idx} className="flex items-start gap-2">
-                <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center bg-blue-500 rounded-full text-[10px] font-bold">
-                  {citation.split(",")[idx]?.trim() || idx + 1}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-white truncate">
-                    {source.documentTitle}
-                  </p>
-                  {source.pageNumber && (
-                    <p className="text-gray-400 text-[10px]">
-                      Trang {source.pageNumber}
+      {showTooltip && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-3 bg-[#0f0e1a] border border-gray-700 shadow-2xl rounded-xl z-[9999] animate-fade-in">
+          <div className="pb-2 mb-2 text-xs font-bold tracking-wider text-gray-300 uppercase border-b border-gray-700">
+            Nguồn tham khảo
+          </div>
+          <div className="space-y-2 overflow-y-auto max-h-48 custom-scrollbar">
+            {sources.length > 0 ? (
+              sources.map((source, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-start gap-2 p-1 rounded hover:bg-white/5"
+                >
+                  <span className="flex-shrink-0 w-4 h-4 bg-primary text-white rounded-full flex items-center justify-center text-[9px] mt-0.5 font-bold">
+                    {idx + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-200 line-clamp-2">
+                      {source.documentTitle || "Tài liệu không tên"}
                     </p>
-                  )}
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] text-gray-500 bg-white/5 px-1.5 rounded">
+                        {source.pageNumber
+                          ? `Trang ${source.pageNumber}`
+                          : "Toàn văn"}
+                      </span>
+                      {source.similarityScore && (
+                        <span className="text-[10px] text-green-500">
+                          {Math.round(source.similarityScore * 100)}% khớp
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="text-xs italic text-center text-gray-500">
+                Chi tiết nguồn chưa được lập chỉ mục
+              </p>
+            )}
           </div>
-          {/* Tooltip arrow */}
-          <div className="absolute -mt-px -translate-x-1/2 top-full left-1/2">
-            <div className="w-0 h-0 border-t-4 border-l-4 border-r-4 border-transparent border-t-gray-900 dark:border-t-gray-800"></div>
-          </div>
+          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#0f0e1a]"></div>
         </div>
       )}
     </span>
   );
 };
 
-// Parse inline formatting (legacy - now uses enhanced version above)
-const parseInlineFormattingLegacy = (text: string, isUser: boolean) => {
-  const parts: React.ReactNode[] = [];
-  let currentText = "";
+// ✅ 2. ENHANCED MARKDOWN RENDERER
+const MarkdownRenderer: React.FC<{ content: string; isUser: boolean; sources?: SourceReference[]; }> = ({ content, isUser, sources = [] }) => {
+  
+  // Helper to parse inline styles (bold, italic, citations)
+  const parseInline = (text: string) => {
+    const parts: React.ReactNode[] = [];
+    const regex = /(\[(\d+(?:,\s*\d+)*)\])|(\*\*.*?\*\*)|(\*.*?\*)|(`.*?`)/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
+      }
+
+      if (match[1]) { // Citation
+        const nums = match[2].split(",").map(n => parseInt(n.trim()));
+        const relevantSources = nums.map(n => sources[n - 1]).filter(Boolean);
+        parts.push(<CitationBadge key={match.index} citation={match[2]} sources={relevantSources} isUser={isUser} />);
+      } else if (match[3]) { // Bold
+        parts.push(<strong key={match.index} className="font-bold">{match[3].slice(2, -2)}</strong>);
+      } else if (match[4]) { // Italic
+        parts.push(<em key={match.index} className="italic">{match[4].slice(1, -1)}</em>);
+      } else if (match[5]) { // Code
+        parts.push(<code key={match.index} className="px-1 font-mono text-sm rounded bg-black/30">{match[5].slice(1, -1)}</code>);
+      }
+      lastIndex = regex.lastIndex;
+    }
+    if (lastIndex < text.length) parts.push(text.substring(lastIndex));
+    return parts;
+  };
+
+  const lines = content.split('\n');
+  const elements: React.ReactNode[] = [];
   let i = 0;
 
-  while (i < text.length) {
-    // Bold text **text**
-    if (text.substring(i, i + 2) === "**") {
-      if (currentText) {
-        parts.push(currentText);
-        currentText = "";
-      }
-      i += 2;
-      let boldText = "";
-      while (i < text.length && text.substring(i, i + 2) !== "**") {
-        boldText += text[i];
-        i++;
-      }
-      parts.push(
-        <strong key={i} className="font-semibold">
-          {boldText}
-        </strong>
-      );
-      i += 2;
-      continue;
+  while (i < lines.length) {
+    let line = lines[i];
+    
+    // --- HEADERS ---
+    if (line.trim().startsWith('#')) {
+        const level = line.match(/^#+/)?.[0].length || 0;
+        const text = line.replace(/^#+\s*/, '');
+        const sizes = ["text-xl", "text-lg", "text-base"];
+        const className = `${sizes[level-1] || "text-base"} font-bold mt-4 mb-2 ${isUser ? "text-white" : "text-gray-100"}`;
+        elements.push(<div key={i} className={className}>{parseInline(text)}</div>);
+        i++; continue;
     }
 
-    // Citations [1], [2], [1, 2]
-    if (text[i] === "[" && text.substring(i).match(/^\[\d+(?:,\s*\d+)*\]/)) {
-      if (currentText) {
-        parts.push(currentText);
-        currentText = "";
-      }
-      const match = text.substring(i).match(/^\[(\d+(?:,\s*\d+)*)\]/);
-      if (match) {
-        const citation = match[1];
-        parts.push(
-          <sup
-            key={i}
-            className={`mx-0.5 px-1.5 py-0.5 text-xs font-medium rounded ${
-              isUser
-                ? "bg-white/30 text-white"
-                : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-            }`}
-          >
-            {citation}
-          </sup>
-        );
-        i += match[0].length;
+    // --- LISTS (Nested Support) ---
+    if (/^(\s*)([-*]|\d+\.)\s/.test(line)) {
+        const listItems = [];
+        let currentIndent = 0;
+        
+        while (i < lines.length) {
+            const match = lines[i].match(/^(\s*)([-*]|\d+\.)\s+(.*)/);
+            if (!match) break;
+            
+            const indent = match[1].length;
+            const marker = match[2];
+            const text = match[3];
+            const isOrdered = /^\d+\./.test(marker);
+            
+            // Basic nesting logic: Indent based on spaces (approximate)
+            const marginLeft = indent > 0 ? "ml-6" : "ml-0"; 
+            
+            listItems.push(
+                <li key={i} className={`${marginLeft} mb-1 flex items-start gap-2`}>
+                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-current opacity-70 flex-shrink-0" />
+                    <span className="leading-relaxed">{parseInline(text)}</span>
+                </li>
+            );
+            i++;
+        }
+        elements.push(<ul key={`list-${i}`} className="mb-3">{listItems}</ul>);
         continue;
-      }
     }
 
-    currentText += text[i];
+    // --- TABLES ---
+    if (line.trim().startsWith('|')) {
+        const tableRows = [];
+        while (i < lines.length && lines[i].trim().startsWith('|')) {
+            tableRows.push(lines[i]);
+            i++;
+        }
+        
+        if (tableRows.length >= 2) { // Need at least header + separator
+            const rows = tableRows.map(r => r.split('|').slice(1, -1).map(c => c.trim()));
+            const header = rows[0];
+            const body = rows.slice(2); // Skip separator row
+            
+            elements.push(
+                <div key={`table-${i}`} className="my-4 overflow-hidden border border-gray-700 rounded-lg">
+                    <table className="min-w-full text-sm">
+                        <thead className="font-bold bg-white/10">
+                            <tr>{header.map((h, idx) => <th key={idx} className="px-3 py-2 text-left border-b border-gray-700">{parseInline(h)}</th>)}</tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-700/50">
+                            {body.map((row, rIdx) => (
+                                <tr key={rIdx} className="hover:bg-white/5">
+                                    {row.map((c, cIdx) => <td key={cIdx} className="px-3 py-2">{parseInline(c)}</td>)}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            );
+            continue;
+        }
+    }
+
+    // --- PARAGRAPH ---
+    if (line.trim()) {
+        elements.push(<div key={i} className="mb-2 leading-relaxed">{parseInline(line)}</div>);
+    }
     i++;
   }
 
-  return parts;
+  return <div className={`space-y-1 ${isUser ? "text-white" : "text-gray-200"}`}>{elements}</div>;
 };
 
-// Main Component
+// 3. MAIN COMPONENT (MessageBubble)
 export default function MessageBubble({
   message,
   onEditMessage,
 }: MessageBubbleProps) {
   const isUser = message.sender === "user";
-  const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const isLoading = message.status === "loading";
+  const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState(message.text);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Add CSS animation for tooltip
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.textContent = `
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-          transform: translateX(-50%) translateY(-4px);
-        }
-        to {
-          opacity: 1;
-          transform: translateX(-50%) translateY(0);
-        }
-      }
-    `;
-    document.head.appendChild(style);
-    return () => {
-      document.head.removeChild(style);
-    };
-  }, []);
-
-  useEffect(() => {
-    setEditedText(message.text);
-  }, [message.text]);
-
-  useEffect(() => {
-    if (isEditing && textareaRef.current) {
-      textareaRef.current.focus();
-      textareaRef.current.setSelectionRange(
-        textareaRef.current.value.length,
-        textareaRef.current.value.length
-      );
-    }
-  }, [isEditing]);
-
-  const { displayText, activeSources } = useMemo(() => {
-    if (isUser) return { displayText: message.text, activeSources: [] };
-
-    let sources = message.sources ? [...message.sources] : [];
-    let text = message.text || "";
-
-    const citationRegex = /\[(\d+(?:,\s*\d+)*)\]/g;
-    const citationsInText = new Set<number>();
-    let match;
-
-    while ((match = citationRegex.exec(text)) !== null) {
-      const nums = match[1].split(",").map((n) => parseInt(n.trim()));
-      nums.forEach((n) => citationsInText.add(n));
-    }
-
-    if (sources.length === 0) {
-      const sourceRegex =
-        /\[(?:Nguồn|Source)\s*(\d+):\s*(.*?)(?:,\s*Page\s*(\d+))?\]/gi;
-      while ((match = sourceRegex.exec(text)) !== null) {
-        sources.push({
-          documentId: `gen-${match[1]}`,
-          documentTitle: match[2].trim(),
-          pageNumber: match[3] ? parseInt(match[3]) : null,
-        });
-      }
-    }
-
-    const cleanedText = text
-      .replace(/\[(?:Nguồn|Source)\s*\d+:\s*[\s\S]*?\]/gi, "")
-      .trim();
-
-    const usedSources = sources.filter(
-      (_, idx) => citationsInText.size === 0 || citationsInText.has(idx + 1)
-    );
-
-    return { displayText: cleanedText, activeSources: usedSources };
-  }, [message.text, message.sources, isUser]);
+  // Clean text: Xóa artifacts nếu có
+  const displayText = useMemo(
+    () =>
+      message.text.replace(/\[(?:Nguồn|Source)\s*\d+:\s*.*?\]/gi, "").trim(),
+    [message.text]
+  );
+  const activeSources = useMemo(() => message.sources || [], [message.sources]);
 
   const handleCopy = () => {
-    const textToCopy = isUser ? message.text : displayText;
-    navigator.clipboard.writeText(textToCopy);
-    setCopiedId(message.id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const handleShare = async () => {
-    const textToShare = isUser ? message.text : displayText;
-    if (navigator.share && textToShare) {
-      await navigator.share({ title: "DocMentor", text: textToShare });
-    } else {
-      navigator.clipboard.writeText(textToShare || "");
-      alert("Đã sao chép nội dung!");
-    }
-  };
-
-  const handleSaveEdit = () => {
-    if (editedText.trim() !== message.text) {
-      onEditMessage?.(message.id, editedText);
-    }
-    setIsEditing(false);
-  };
-
-  const handleCancelEdit = () => {
-    setEditedText(message.text);
-    setIsEditing(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSaveEdit();
-    }
-    if (e.key === "Escape") {
-      handleCancelEdit();
-    }
-  };
-
-  const renderUserFiles = () => {
-    if (!isUser) return null;
-    const filesToRender = [];
-
-    if (message.attachment) {
-      filesToRender.push({
-        id: "att-direct",
-        name: message.attachment.fileName,
-        type: message.attachment.fileType,
-        size: message.attachment.fileSize,
-        label: "📎 File tải lên",
-      });
-    }
-
-    const attachedDocs = message.attachedDocuments || [];
-    if (attachedDocs.length > 0) {
-      attachedDocs.forEach((doc, idx) => {
-        filesToRender.push({
-          id: `att-doc-${doc.id || idx}`,
-          name: doc.title || "Tài liệu không tên",
-          type: "document",
-          size: 0,
-          label: "📚 Tài liệu",
-        });
-      });
-    }
-
-    if (filesToRender.length === 0) return null;
-
-    return (
-      <div className="flex flex-col w-full gap-2 mb-3">
-        {filesToRender.map((file) => (
-          <div
-            key={file.id}
-            className="flex items-center gap-3 p-3 transition-all border rounded-lg bg-white/10 border-white/20 backdrop-blur-sm hover:bg-white/20 hover:border-white/30"
-          >
-            <div className="flex-shrink-0">{getFileIcon(file.name, true)}</div>
-            <div className="flex-grow min-w-0">
-              <p
-                className="text-sm font-medium text-white truncate"
-                title={file.name}
-              >
-                {file.name}
-              </p>
-              <div className="flex items-center gap-2 text-xs text-blue-100/70">
-                <span>{file.label}</span>
-                {file.size > 0 && <span>• {formatBytes(file.size)}</span>}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderSources = () => {
-    if (isUser || !activeSources || activeSources.length === 0) return null;
-
-    return (
-      <div className="pt-4 mt-4 border-t border-gray-200/30 dark:border-gray-700/30">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="p-1.5 rounded-lg bg-blue-500/10">
-            <FiBookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          </div>
-          <span className="text-xs font-semibold tracking-wide text-gray-700 uppercase dark:text-gray-300">
-            Nguồn tham khảo ({activeSources.length})
-          </span>
-        </div>
-        <div className="space-y-2">
-          {activeSources.map((source, index) => {
-            const docTitle =
-              source.documentTitle ||
-              (source as any).document_title ||
-              "Unknown";
-            const pageNum =
-              source.pageNumber ?? (source as any).page_number ?? null;
-
-            return (
-              <div
-                key={`${source.documentId}-${index}`}
-                className="flex items-start gap-3 p-3 transition-all border rounded-lg cursor-pointer group bg-gradient-to-r from-blue-50/50 to-transparent dark:from-blue-900/10 border-blue-100/50 dark:border-blue-800/30 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-sm"
-              >
-                <div className="flex items-center justify-center flex-shrink-0 w-6 h-6 text-xs font-bold text-white bg-blue-500 rounded-full">
-                  {index + 1}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate transition-colors dark:text-gray-200 group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                    {docTitle}
-                  </p>
-                  {pageNum && pageNum > 0 && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      📄 Trang {pageNum}
-                    </p>
-                  )}
-                  {source.similarityScore && (
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                      Độ liên quan: {(source.similarityScore * 100).toFixed(0)}%
-                    </p>
-                  )}
-                </div>
-                <FiExternalLink className="w-4 h-4 text-gray-400 transition-opacity opacity-0 group-hover:opacity-100" />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  const renderUserActions = () => {
-    if (!isUser || isEditing) return null;
-    return (
-      <div className="flex items-center justify-end gap-1 mt-2 transition-opacity opacity-0 group-hover:opacity-100">
-        <button
-          onClick={handleCopy}
-          className="p-1.5 rounded-md hover:bg-white/20 text-blue-100 hover:text-white transition-colors"
-          title="Sao chép"
-        >
-          {copiedId === message.id ? (
-            <FiCheck className="w-3.5 h-3.5" />
-          ) : (
-            <FiCopy className="w-3.5 h-3.5" />
-          )}
-        </button>
-        <button
-          onClick={() => setIsEditing(true)}
-          className="p-1.5 rounded-md hover:bg-white/20 text-blue-100 hover:text-white transition-colors"
-          title="Chỉnh sửa"
-        >
-          <FiEdit3 className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    );
-  };
-
-  const renderAIActions = () => {
-    if (isUser) return null;
-    return (
-      <div className="flex items-center gap-1 mt-3 transition-opacity opacity-0 group-hover:opacity-100">
-        <button
-          onClick={handleCopy}
-          className="p-2 text-gray-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-400"
-          title="Sao chép"
-        >
-          {copiedId === message.id ? (
-            <FiCheck className="w-4 h-4 text-green-500" />
-          ) : (
-            <FiCopy className="w-4 h-4" />
-          )}
-        </button>
-        <button
-          onClick={handleShare}
-          className="p-2 text-gray-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-400"
-          title="Chia sẻ"
-        >
-          <FiShare2 className="w-4 h-4" />
-        </button>
-        <div className="w-px h-5 mx-1 bg-gray-300 dark:bg-gray-600"></div>
-        <button
-          onClick={() => setFeedback(feedback === "like" ? null : "like")}
-          className={`p-2 rounded-lg transition-colors ${
-            feedback === "like"
-              ? "text-green-600 bg-green-50 dark:bg-green-900/20"
-              : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-          }`}
-          title="Hữu ích"
-        >
-          <FiThumbsUp className="w-4 h-4" />
-        </button>
-        <button
-          onClick={() => setFeedback(feedback === "dislike" ? null : "dislike")}
-          className={`p-2 rounded-lg transition-colors ${
-            feedback === "dislike"
-              ? "text-red-600 bg-red-50 dark:bg-red-900/20"
-              : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-          }`}
-          title="Không hữu ích"
-        >
-          <FiThumbsDown className="w-4 h-4" />
-        </button>
-      </div>
-    );
+    navigator.clipboard.writeText(displayText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
     <div
-      className={`flex items-start gap-3 w-full ${
-        isUser ? "justify-end" : "justify-start"
-      }`}
+      className={`flex w-full gap-4 ${isUser ? "justify-end" : "justify-start"} group mb-6 animate-fade-in`}
     >
       {!isUser && (
-        <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-lg shadow-md bg-gradient-to-br from-blue-500 to-purple-600">
-          <svg
-            className="w-5 h-5 text-white"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-            />
-          </svg>
+        <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 mt-1 rounded-full shadow-lg bg-gradient-to-br from-indigo-500 to-purple-600">
+          <FiCpu
+            className={`w-4 h-4 text-white ${isLoading ? "animate-pulse" : ""}`}
+          />
         </div>
       )}
 
       <div
-        className={`group relative max-w-[85%] md:max-w-2xl rounded-2xl px-5 py-4 shadow-sm ${
-          isUser
-            ? "bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-br-sm"
-            : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-bl-sm"
-        }`}
+        className={`flex flex-col max-w-[85%] lg:max-w-[75%] ${isUser ? "items-end" : "items-start"}`}
       >
-        {renderUserFiles()}
+        <span className="text-[10px] text-gray-500 mb-1 px-1 opacity-70">
+          {isUser ? "Bạn" : "DocMentor AI"} •{" "}
+          {new Date(message.timestamp).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </span>
 
-        {isEditing ? (
-          <div className="w-full">
-            <textarea
-              ref={textareaRef}
-              value={editedText}
-              onChange={(e) => setEditedText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="w-full bg-white/10 text-white border border-white/30 rounded-md p-2 text-sm focus:outline-none focus:border-white/50 resize-none min-h-[60px]"
-              rows={Math.max(2, Math.min(10, editedText.split("\n").length))}
-            />
-            <div className="flex items-center justify-end gap-2 mt-2">
-              <button
-                onClick={handleCancelEdit}
-                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-colors"
-                title="Hủy"
-              >
-                <FiX className="w-4 h-4" />
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                className="p-1.5 rounded-full bg-green-500 hover:bg-green-400 text-white shadow-sm transition-colors"
-                title="Lưu"
-              >
-                <FiCheck className="w-4 h-4" />
-              </button>
+        <div
+          className={`relative px-5 py-4 shadow-md text-sm transition-all ${
+            isUser
+              ? "bg-primary text-white rounded-2xl rounded-tr-sm"
+              : "bg-[#1A162D] border border-white/10 text-gray-200 rounded-2xl rounded-tl-sm"
+          }`}
+        >
+          {isLoading ? (
+            <div className="flex gap-1.5 items-center h-5 px-1">
+              <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+              <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+              <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></span>
             </div>
-          </div>
-        ) : (
-          <>
-            {(isUser ? message.text : displayText) && (
-              <MarkdownRenderer
-                content={isUser ? message.text : displayText}
-                isUser={isUser}
-                sources={activeSources}
-              />
+          ) : (
+            <>
+              {/* Attachments */}
+              {isUser && (message.attachment || message.attachedDocuments) && (
+                <div className="mb-3 space-y-2">
+                  {message.attachment && (
+                    <div className="flex items-center gap-2 p-2 text-xs border rounded bg-white/10 border-white/10">
+                      <FiFile /> {message.attachment.fileName}
+                    </div>
+                  )}
+                  {message.attachedDocuments?.map((doc, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 p-2 text-xs border rounded bg-white/10 border-white/10"
+                    >
+                      <FiBookOpen /> {doc.title}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Editing Mode */}
+              {isEditing ? (
+                <div className="min-w-[300px]">
+                  <textarea
+                    value={editedText}
+                    onChange={(e) => setEditedText(e.target.value)}
+                    className="w-full p-2 text-white border rounded bg-black/30 border-white/20 focus:outline-none"
+                    rows={4}
+                  />
+                  <div className="flex justify-end gap-2 mt-2">
+                    <button
+                      onClick={() => setIsEditing(false)}
+                      className="px-3 py-1 text-xs rounded hover:bg-white/10"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      onClick={() => {
+                        onEditMessage?.(message.id, editedText);
+                        setIsEditing(false);
+                      }}
+                      className="px-3 py-1 text-xs font-bold bg-white rounded text-primary"
+                    >
+                      Lưu
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <MarkdownRenderer
+                  content={displayText}
+                  isUser={isUser}
+                  sources={activeSources}
+                />
+              )}
+
+              {/* Sources Footer */}
+              {!isUser && activeSources.length > 0 && (
+                <div className="pt-3 mt-4 border-t border-white/10">
+                  <div className="flex items-center gap-1 mb-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                    <FiBookOpen size={10} /> Nguồn tham khảo
+                  </div>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {activeSources.map((src, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 p-1.5 rounded bg-black/20 hover:bg-black/40 border border-transparent hover:border-white/10 transition-colors cursor-pointer group"
+                      >
+                        <span className="w-4 h-4 bg-gray-700 group-hover:bg-primary group-hover:text-white transition-colors rounded-full flex items-center justify-center text-[9px] font-bold text-gray-300">
+                          {i + 1}
+                        </span>
+                        <span className="flex-1 text-xs text-gray-400 truncate group-hover:text-gray-200">
+                          {src.documentTitle}
+                        </span>
+                        <FiExternalLink
+                          size={10}
+                          className="text-gray-600 group-hover:text-gray-400"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Actions */}
+        {!isLoading && (
+          <div className="flex items-center gap-1 px-1 mt-1 transition-opacity opacity-0 group-hover:opacity-100">
+            <button
+              onClick={handleCopy}
+              className="p-1.5 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-colors"
+              title="Sao chép"
+            >
+              {copied ? <FiCheck size={14} /> : <FiCopy size={14} />}
+            </button>
+            {!isUser && (
+              <>
+                <button className="p-1.5 hover:bg-white/10 rounded text-gray-500 hover:text-green-400">
+                  <FiThumbsUp size={14} />
+                </button>
+                <button className="p-1.5 hover:bg-white/10 rounded text-gray-500 hover:text-red-400">
+                  <FiThumbsDown size={14} />
+                </button>
+              </>
             )}
-          </>
+            {isUser && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="p-1.5 hover:bg-white/10 rounded text-gray-500 hover:text-white"
+              >
+                <FiEdit3 size={14} />
+              </button>
+            )}
+          </div>
         )}
-
-        {renderSources()}
-        {renderUserActions()}
-        {renderAIActions()}
       </div>
-
       {isUser && (
-        <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 text-sm font-semibold text-white rounded-lg bg-gradient-to-br from-gray-600 to-gray-700">
-          U
+        <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 mt-1 bg-gray-700 rounded-full">
+          <FiUser className="text-gray-300" />
         </div>
       )}
     </div>

@@ -8,27 +8,33 @@ import MessageBubble from "./MessageBubble";
 interface MessageListProps {
   messages: ChatMessage[];
   isReplying: boolean;
+  onEditMessage?: (id: string, text: string) => void;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
   messages,
   isReplying,
+  onEditMessage,
 }) => {
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     //endOfMessagesRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isReplying]);
 
   return (
-    <div className="flex-1 p-6 space-y-6 overflow-y-auto custom-scrollbar">
+    <div className="flex-1 py-6 space-y-6">
       {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} />
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          onEditMessage={onEditMessage} // ✅ Truyền tiếp xuống Bubble
+        />
       ))}
 
       {isReplying && (
-        <div className="flex items-start gap-3 justify-start animate-fade-in">
-          <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/30">
+        <div className="flex items-start justify-start gap-3 pl-1 animate-fade-in">
+          <div className="flex items-center justify-center flex-shrink-0 w-10 h-10 shadow-lg rounded-xl bg-gradient-to-br from-primary to-secondary shadow-primary/30">
             <svg
               className="w-6 h-6 text-white"
               fill="none"
@@ -43,11 +49,15 @@ export const MessageList: React.FC<MessageListProps> = ({
               />
             </svg>
           </div>
-          <div className="bg-accent/60 backdrop-blur-sm border border-primary/20 rounded-2xl rounded-tl-sm px-6 py-4 shadow-lg">
-            <div className="flex items-center justify-center space-x-2">
-              <span className="h-2 w-2 bg-primary rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-              <span className="h-2 w-2 bg-secondary rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-              <span className="h-2 w-2 bg-primary rounded-full animate-bounce"></span>
+          <div className="px-6 py-4 border rounded-tl-sm shadow-lg bg-accent/60 backdrop-blur-sm border-primary/20 rounded-2xl">
+            <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-full shadow-lg bg-gradient-to-br from-indigo-500 to-purple-600">
+              ...
+            </div>
+            <div className="bg-[#1E1E2E] border border-white/10 rounded-2xl px-5 py-3">
+              <div className="flex gap-1">
+                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></span>
+                ...
+              </div>
             </div>
           </div>
         </div>

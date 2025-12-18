@@ -1,9 +1,13 @@
-// src/components/dashboard/RecentDocuments.tsx
-import React from "react";
-import { useQuery } from "@/hooks/api/useQuery";
-import { FileText, CheckCircle, Clock } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { dashboardService } from "@/services/dashboard/dashboardService";
+import {
+  FiFileText,
+  FiCheckCircle,
+  FiClock,
+  FiArrowRight,
+} from "react-icons/fi";
 import { formatFileSize } from "@/utils/formatters";
-import { API_ENDPOINTS, buildQueryUrl } from "@/config/api";
+import { Link } from "react-router-dom";
 
 interface RecentDocument {
   id: number;
@@ -15,83 +19,84 @@ interface RecentDocument {
 }
 
 export const RecentDocuments: React.FC = () => {
-  const { data, loading, error } = useQuery({
-    url: buildQueryUrl(API_ENDPOINTS.DASHBOARD.RECENT_DOCUMENTS, { limit: 5 }),
-    enabled: true,
-  });
+  const [documents, setDocuments] = useState<RecentDocument[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // ✅ Fix: Handle null/undefined data
-  const documents = data || [];
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await dashboardService.getRecentDocuments(5);
+        setDocuments(res);
+      } catch (error) {
+        console.error("Failed to load recent docs", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  if (loading)
+    return <div className="h-64 bg-white/5 rounded-2xl animate-pulse"></div>;
 
   return (
-    <div className="p-6 bg-white border border-gray-200 rounded-lg dark:border-gray-700 dark:bg-gray-800">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-          Tài liệu gần đây
+    <div className="flex flex-col h-full p-6 border bg-accent/40 border-primary/10 rounded-2xl backdrop-blur-sm">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="flex items-center gap-2 text-lg font-bold text-white">
+          <FiFileText className="text-primary" /> Tài liệu gần đây
         </h3>
-        <a
-          href="/user/documents"
-          className="text-sm text-blue-600 hover:text-blue-700"
+        <Link
+          to="/user/documents"
+          className="flex items-center gap-1 text-xs transition-colors text-primary hover:text-white"
         >
-          Xem tất cả →
-        </a>
+          Xem tất cả <FiArrowRight />
+        </Link>
       </div>
 
-      {loading && (
-        <div className="py-8 text-center">
-          <div className="inline-block w-8 h-8 border-2 border-blue-600 rounded-full animate-spin border-t-transparent"></div>
-        </div>
-      )}
-
-      {error && (
-        <div className="py-8 text-center">
-          <p className="text-sm text-red-500">{error.message}</p>
-        </div>
-      )}
-
-      {!loading && !error && documents.length === 0 && (
-        <div className="py-8 text-center text-gray-500">
+      {documents.length === 0 ? (
+        <div className="flex flex-col items-center justify-center flex-1 text-sm italic text-gray-500">
           Chưa có tài liệu nào
         </div>
-      )}
-
-      {!loading && !error && documents.length > 0 && (
+      ) : (
         <div className="space-y-3">
-          {documents.map((doc: RecentDocument) => (
+          {documents.map((doc) => (
             <div
               key={doc.id}
-              className="p-3 transition border border-gray-200 rounded-lg dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+              className="p-3 flex items-center gap-3 bg-[#1A162D] border border-white/5 rounded-xl hover:border-primary/30 transition-all group"
             >
-              <div className="flex items-start gap-3">
-                <div className="p-2 bg-blue-100 rounded dark:bg-blue-900/30">
-                  <FileText
-                    size={16}
-                    className="text-blue-600 dark:text-blue-400"
-                  />
+              <div className="p-2 text-blue-400 transition-colors rounded-lg bg-blue-500/10 group-hover:bg-blue-500/20">
+                <FiFileText size={16} />
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-200 truncate transition-colors group-hover:text-white">
+                  {doc.title}
+                </p>
+                <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-500">
+                  <span className="uppercase bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
+                    {doc.file_type}
+                  </span>
+                  <span>•</span>
+                  <span>{formatFileSize(doc.file_size)}</span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate dark:text-white">
-                    {doc.title}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                    <span>{doc.file_type}</span>
-                    <span>•</span>
-                    <span>{formatFileSize(doc.file_size)}</span>
+              </div>
+
+              <div className="pl-2 text-right">
+                {doc.processed ? (
+                  <div
+                    className="p-1.5 rounded-full bg-green-500/10 text-green-500"
+                    title="Đã xử lý"
+                  >
+                    <FiCheckCircle size={14} />
                   </div>
-                </div>
-                <div className="text-right">
-                  {doc.processed ? (
-                    <div className="flex items-center gap-1 text-xs font-medium text-green-600">
-                      <CheckCircle size={14} />
-                      <span>Xong</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1 text-xs font-medium text-orange-600">
-                      <Clock size={14} />
-                      <span>Đang xử lý</span>
-                    </div>
-                  )}
-                </div>
+                ) : (
+                  <div
+                    className="p-1.5 rounded-full bg-orange-500/10 text-orange-500 animate-pulse"
+                    title="Đang xử lý"
+                  >
+                    <FiClock size={14} />
+                  </div>
+                )}
               </div>
             </div>
           ))}

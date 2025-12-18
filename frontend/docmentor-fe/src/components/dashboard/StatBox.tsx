@@ -1,5 +1,5 @@
-import React from 'react';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import React from "react";
+import { TrendingUp, TrendingDown } from "lucide-react";
 
 interface StatBoxProps {
   title: string;
@@ -10,35 +10,42 @@ interface StatBoxProps {
     value: number;
     isPositive: boolean;
   };
-  color?: 'blue' | 'green' | 'purple' | 'orange' | 'red';
+  // Chỉ chấp nhận các key màu định sẵn
+  color?: "blue" | "green" | "purple" | "orange" | "red" | "yellow";
 }
 
+// ✅ Định nghĩa style đẹp tại đây (Single Source of Truth)
 const colorVariants = {
   blue: {
-    bg: 'bg-blue-50 dark:bg-blue-900/20',
-    icon: 'text-blue-600 dark:text-blue-400',
-    border: 'border-blue-200 dark:border-blue-800'
+    wrapper: "bg-blue-500/10 border-blue-500/20",
+    text: "text-blue-500",
+    iconBg: "bg-blue-500/20",
   },
   green: {
-    bg: 'bg-green-50 dark:bg-green-900/20',
-    icon: 'text-green-600 dark:text-green-400',
-    border: 'border-green-200 dark:border-green-800'
+    wrapper: "bg-green-500/10 border-green-500/20",
+    text: "text-green-500",
+    iconBg: "bg-green-500/20",
   },
   purple: {
-    bg: 'bg-purple-50 dark:bg-purple-900/20',
-    icon: 'text-purple-600 dark:text-purple-400',
-    border: 'border-purple-200 dark:border-purple-800'
+    wrapper: "bg-purple-500/10 border-purple-500/20",
+    text: "text-purple-500",
+    iconBg: "bg-purple-500/20",
   },
   orange: {
-    bg: 'bg-orange-50 dark:bg-orange-900/20',
-    icon: 'text-orange-600 dark:text-orange-400',
-    border: 'border-orange-200 dark:border-orange-800'
+    wrapper: "bg-orange-500/10 border-orange-500/20",
+    text: "text-orange-500",
+    iconBg: "bg-orange-500/20",
+  },
+  yellow: {
+    wrapper: "bg-yellow-500/10 border-yellow-500/20",
+    text: "text-yellow-500",
+    iconBg: "bg-yellow-500/20",
   },
   red: {
-    bg: 'bg-red-50 dark:bg-red-900/20',
-    icon: 'text-red-600 dark:text-red-400',
-    border: 'border-red-200 dark:border-red-800'
-  }
+    wrapper: "bg-red-500/10 border-red-500/20",
+    text: "text-red-500",
+    iconBg: "bg-red-500/20",
+  },
 };
 
 export const StatBox: React.FC<StatBoxProps> = ({
@@ -47,35 +54,44 @@ export const StatBox: React.FC<StatBoxProps> = ({
   unit,
   icon,
   trend,
-  color = 'blue'
+  color = "blue",
 }) => {
-  const variant = colorVariants[color];
+  // Lấy style tương ứng với màu được chọn
+  const variant = colorVariants[color] || colorVariants.blue;
 
   return (
-    <div className={`rounded-lg border ${variant.border} ${variant.bg} p-6`}>
+    <div
+      className={`rounded-2xl border p-6 transition-all duration-300 hover:scale-[1.02] ${variant.wrapper}`}
+    >
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
-          <div className="mt-2 flex items-baseline gap-2">
-            <h3 className="text-3xl font-bold text-gray-900 dark:text-white">
-              {value}
-            </h3>
-            {unit && <span className="text-sm text-gray-500 dark:text-gray-400">{unit}</span>}
+          <p className="text-sm font-medium text-gray-400">{title}</p>
+          <div className="flex items-baseline gap-2 mt-2">
+            <h3 className="text-3xl font-bold text-white">{value}</h3>
+            {unit && <span className="text-sm text-gray-500">{unit}</span>}
           </div>
+
+          {/* Trend Section (Optional) */}
           {trend && (
-            <div className={`mt-2 flex items-center gap-1 text-sm ${trend.isPositive ? 'text-green-600' : 'text-red-600'}`}>
+            <div
+              className={`mt-2 flex items-center gap-1 text-xs font-medium ${trend.isPositive ? "text-green-400" : "text-red-400"}`}
+            >
               {trend.isPositive ? (
-                <TrendingUp size={16} />
+                <TrendingUp size={14} />
               ) : (
-                <TrendingDown size={16} />
+                <TrendingDown size={14} />
               )}
-              <span>{trend.value}% {trend.isPositive ? 'increase' : 'decrease'}</span>
+              <span>
+                {trend.value}% {trend.isPositive ? "tăng" : "giảm"}
+              </span>
             </div>
           )}
         </div>
+
+        {/* Icon Section */}
         {icon && (
-          <div className={`rounded-lg p-3 ${variant.bg}`}>
-            <div className={`${variant.icon}`}>{icon}</div>
+          <div className={`rounded-xl p-3 ${variant.iconBg} ${variant.text}`}>
+            {icon}
           </div>
         )}
       </div>

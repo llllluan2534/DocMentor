@@ -23,12 +23,12 @@ const SettingsSection: React.FC<{
   icon: ReactNode;
 }> = ({ title, children, icon }) => {
   return (
-    <section className="mb-6 bg-accent/50 backdrop-blur-sm border border-primary/20 rounded-2xl p-6 hover:border-primary/40 transition-all duration-300 animate-fade-in hover:shadow-lg hover:shadow-primary/10">
+    <section className="p-6 mb-6 transition-all duration-300 border bg-accent/50 backdrop-blur-sm border-primary/20 rounded-2xl hover:border-primary/40 animate-fade-in hover:shadow-lg hover:shadow-primary/10">
       <div className="flex items-center gap-3 mb-6">
         <div className="p-2.5 bg-gradient-to-br from-primary/20 to-secondary/20 rounded-xl">
           {icon}
         </div>
-        <h2 className="text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+        <h2 className="text-2xl font-bold text-transparent bg-gradient-to-r from-primary to-secondary bg-clip-text">
           {title}
         </h2>
       </div>
@@ -46,10 +46,10 @@ const SettingsRow: React.FC<{
   return (
     <div className="flex items-center justify-between min-h-[64px] p-4 rounded-xl hover:bg-primary/5 transition-all duration-200 group">
       <div className="flex-1 pr-4">
-        <p className="font-semibold text-white/90 group-hover:text-white transition-colors mb-1">
+        <p className="mb-1 font-semibold transition-colors text-white/90 group-hover:text-white">
           {title}
         </p>
-        <p className="text-sm text-text-muted group-hover:text-white/70 transition-colors">
+        <p className="text-sm transition-colors text-text-muted group-hover:text-white/70">
           {description}
         </p>
       </div>
@@ -128,13 +128,13 @@ const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-5xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+    <div className="max-w-5xl px-4 py-8 mx-auto sm:px-6 lg:px-8">
       {/* Header với gradient */}
       <div className="mb-10 animate-slide-in-right">
-        <h1 className="text-4xl md:text-5xl font-bold mb-3 bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text text-transparent">
+        <h1 className="mb-3 text-4xl font-bold text-transparent md:text-5xl bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text">
           Cài đặt
         </h1>
-        <p className="text-text-muted text-lg">Tùy chỉnh trải nghiệm của bạn</p>
+        <p className="text-lg text-text-muted">Tùy chỉnh trải nghiệm của bạn</p>
       </div>
 
       {/* === PHẦN GIAO DIỆN === */}
@@ -174,7 +174,7 @@ const SettingsPage: React.FC = () => {
           action={
             <Button
               onClick={handleChangePassword}
-              className="bg-primary/20 hover:bg-primary/30 text-primary hover:text-white border border-primary/30 hover:border-primary/50 transition-all duration-300"
+              className="transition-all duration-300 border bg-primary/20 hover:bg-primary/30 text-primary hover:text-white border-primary/30 hover:border-primary/50"
             >
               <Lock className="w-4 h-4 mr-2" />
               Thay đổi
@@ -186,9 +186,9 @@ const SettingsPage: React.FC = () => {
           description="Xóa vĩnh viễn tài khoản và toàn bộ dữ liệu. Không thể hoàn tác."
           action={
             <Button
-              variant="destructive"
+              variant="danger"
               onClick={handleDeleteAccount}
-              className="bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/50 transition-all duration-300"
+              className="text-red-400 transition-all duration-300 border bg-red-500/20 hover:bg-red-500/30 hover:text-red-300 border-red-500/30 hover:border-red-500/50"
             >
               <Trash2 className="w-4 h-4 mr-2" />
               Xóa tài khoản
@@ -209,7 +209,7 @@ const SettingsPage: React.FC = () => {
             <Button
               variant="secondary"
               onClick={handleClearHistory}
-              className="bg-secondary/20 hover:bg-secondary/30 text-secondary hover:text-white border border-secondary/30 hover:border-secondary/50 transition-all duration-300"
+              className="transition-all duration-300 border bg-secondary/20 hover:bg-secondary/30 text-secondary hover:text-white border-secondary/30 hover:border-secondary/50"
             >
               <Trash2 className="w-4 h-4 mr-2" />
               Xóa lịch sử
@@ -219,16 +219,16 @@ const SettingsPage: React.FC = () => {
       </SettingsSection>
 
       {/* Footer Info */}
-      <div className="mt-10 p-6 bg-accent/30 backdrop-blur-sm border border-primary/10 rounded-2xl animate-fade-in">
+      <div className="p-6 mt-10 border bg-accent/30 backdrop-blur-sm border-primary/10 rounded-2xl animate-fade-in">
         <div className="flex items-start gap-3">
-          <div className="p-2 bg-secondary/20 rounded-lg">
+          <div className="p-2 rounded-lg bg-secondary/20">
             <Shield className="w-5 h-5 text-secondary" />
           </div>
           <div>
-            <h3 className="font-semibold text-white/90 mb-1">
+            <h3 className="mb-1 font-semibold text-white/90">
               Bảo mật & Quyền riêng tư
             </h3>
-            <p className="text-sm text-text-muted leading-relaxed">
+            <p className="text-sm leading-relaxed text-text-muted">
               Dữ liệu của bạn được mã hóa và bảo mật. Chúng tôi không bao giờ
               chia sẻ thông tin cá nhân của bạn với bên thứ ba.
             </p>

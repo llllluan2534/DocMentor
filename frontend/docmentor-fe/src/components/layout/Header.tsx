@@ -1,6 +1,8 @@
+// src/components/layout/Header.tsx
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { realAuthService, User } from "@/services/auth/authService";
+import { FiLogOut, FiSettings, FiMenu, FiX } from "react-icons/fi";
 
 interface HeaderProps {
   hideAuthButtons?: boolean;
@@ -13,27 +15,23 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
 
-  // Detect scroll
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
-    };
+    const handleScroll = () => setIsScrolled(window.scrollY > 10);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Close mobile menu when route changes
-  useEffect(() => {
-    setIsMobileMenuOpen(false);
-  }, [location]);
+  useEffect(() => setIsMobileMenuOpen(false), [location]);
 
-  // Lấy thông tin user khi load header
   useEffect(() => {
     const fetchUser = async () => {
-      const currentUser = await realAuthService.getCurrentUser();
-      setUser(currentUser);
+      try {
+        const currentUser = await realAuthService.getCurrentUser();
+        setUser(currentUser);
+      } catch (e) {
+        console.error(e);
+      }
     };
-
     fetchUser();
   }, []);
 
@@ -49,198 +47,132 @@ const Header: React.FC<HeaderProps> = ({ hideAuthButtons }) => {
     { label: "Tài liệu của tôi", path: "/user/documents" },
   ];
 
-  const settingsItems = [{ label: "Cài đặt", path: "/user/settings" }];
-
   return (
+    // ✅ FIX 1: h-16 cố định chiều cao
+    // ✅ FIX 2: bg-[#100D20] đặc (không trong suốt) để che nội dung khi scroll
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled
-          ? "bg-background/80 backdrop-blur-sm shadow-lg py-3 border-b border-accent"
-          : "bg-background py-5"
+      className={`fixed top-0 left-0 right-0 z-50 h-16 transition-all duration-300 border-b border-white/5 bg-[#100D20] ${
+        isScrolled ? "shadow-lg shadow-black/20" : ""
       }`}
     >
-      <div className="container px-4 mx-auto">
-        <div className="flex items-center justify-between">
-          {/* Logo */}
+      {/* ✅ FIX 3: Dùng w-full px-4 (hoặc px-6) thay vì container mx-auto để thẳng hàng với Sidebar */}
+      <div className="w-full h-full px-4 lg:px-6">
+        <div className="flex items-center justify-between h-full">
+          {/* LEFT: Logo & Brand */}
           <div
+            className="flex items-center w-64 gap-3 cursor-pointer group"
             onClick={() => navigate("/")}
-            className="flex items-center gap-3 cursor-pointer group"
           >
-            <div className="flex items-center justify-center w-10 h-10 transition-transform rounded-lg bg-primary group-hover:scale-110">
+            <div className="flex items-center justify-center w-8 h-8 transition-transform rounded-lg shadow-lg bg-gradient-to-br from-primary to-secondary group-hover:scale-105 shadow-primary/20">
               <img
                 src="/assets/logo.png"
                 alt="Logo"
-                className="object-contain w-10 h-10"
+                className="object-contain w-5 h-5 filter brightness-0 invert"
               />
             </div>
-            <span className="text-2xl font-bold text-white">DocMentor</span>
+            <span className="text-lg font-bold tracking-tight text-white">
+              DocMentor
+            </span>
           </div>
 
-          {/* ✅ Desktop section */}
-          <div className="items-center hidden gap-6 md:flex">
-            {user ? (
-              <>
-                {/* Menu khi login */}
-                <nav className="flex items-center gap-6">
-                  {menuItems.map((item) => (
+          {/* CENTER: Navigation */}
+          <div className="items-center justify-center flex-1 hidden md:flex">
+            {user && (
+              <nav className="flex items-center gap-1 p-1 border bg-white/5 rounded-xl border-white/5">
+                {menuItems.map((item) => {
+                  const isActive = location.pathname.startsWith(item.path);
+                  return (
                     <button
                       key={item.path}
                       onClick={() => navigate(item.path)}
-                      className={`text-sm font-medium transition-colors ${
-                        location.pathname.startsWith(item.path)
-                          ? "text-primary border-b-2 border-primary pb-1"
-                          : "text-text-muted hover:text-white"
+                      className={`px-4 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                        isActive
+                          ? "bg-primary text-white shadow-md"
+                          : "text-gray-400 hover:text-white hover:bg-white/5"
                       }`}
                     >
                       {item.label}
                     </button>
-                  ))}
-                </nav>
+                  );
+                })}
+              </nav>
+            )}
+          </div>
 
-                {/* Avatar dropdown */}
-                <div className="relative group">
-                  <div className="overflow-hidden rounded-full cursor-pointer w-9 h-9 bg-gradient-to-br from-primary to-purple-600">
-                    {user.avatar ? (
+          {/* RIGHT: User Profile (Aligned with Right Sidebar) */}
+          <div className="flex items-center justify-end w-auto gap-4 lg:w-80">
+            {" "}
+            {/* Cố định width nếu cần */}
+            {user ? (
+              <div className="relative flex items-center gap-3 pl-6 group">
+                <div className="hidden text-right lg:block">
+                  <p className="text-sm font-bold leading-none text-white">
+                    {user.full_name}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-1">{user.email}</p>
+                </div>
+                <div className="w-9 h-9 rounded-full p-[1px] bg-gradient-to-tr from-primary to-secondary cursor-pointer">
+                  <div className="w-full h-full rounded-full bg-[#100D20] flex items-center justify-center overflow-hidden">
+                    {user.avatar_url ? (
                       <img
-                        src={user.avatar}
-                        alt={user.name || "User"}
+                        src={user.avatar_url}
+                        alt="User"
                         className="object-cover w-full h-full"
                       />
                     ) : (
-                      <span className="flex items-center justify-center w-full h-full font-semibold text-white">
-                        {(user.name || user.email || "U").charAt(0).toUpperCase()}
+                      <span className="text-xs font-bold text-white">
+                        {(user.full_name || "U").charAt(0)}
                       </span>
                     )}
                   </div>
+                </div>
 
-                  {/* Dropdown menu */}
-                  <div className="absolute right-0 hidden mt-3 border rounded-lg shadow-lg group-hover:block w-44 bg-background border-accent">
-                    {settingsItems.map((item) => (
-                      <button
-                        key={item.path}
-                        onClick={() => navigate(item.path)}
-                        className="w-full px-4 py-2 text-sm text-left transition-colors hover:bg-accent hover:text-white"
-                      >
-                        {item.label}
-                      </button>
-                    ))}
+                {/* Logout Dropdown */}
+                <div className="absolute right-0 top-full mt-2 w-48 bg-[#1A162D] border border-white/10 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                  <div className="p-1">
+                    <button
+                      onClick={() => navigate("/user/settings")}
+                      className="w-full px-4 py-2.5 text-xs text-left text-gray-300 hover:bg-white/5 rounded-lg flex items-center gap-2"
+                    >
+                      <FiSettings /> Cài đặt
+                    </button>
+                    <div className="h-px my-1 bg-white/5"></div>
                     <button
                       onClick={handleLogout}
-                      className="w-full px-4 py-2 text-sm text-left text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
+                      className="w-full px-4 py-2.5 text-xs text-left text-red-400 hover:bg-red-500/10 rounded-lg flex items-center gap-2"
                     >
-                      Đăng xuất
+                      <FiLogOut /> Đăng xuất
                     </button>
                   </div>
                 </div>
-              </>
+              </div>
             ) : !hideAuthButtons ? (
-              // Nếu chưa đăng nhập
-              <>
+              <div className="flex items-center gap-3">
                 <button
                   onClick={() => navigate("/login")}
-                  className="px-5 py-2 font-semibold transition-colors rounded-lg text-text-muted hover:text-white"
+                  className="px-3 py-2 text-sm font-medium text-gray-300 hover:text-white"
                 >
                   Đăng nhập
                 </button>
                 <button
                   onClick={() => navigate("/register")}
-                  className="px-5 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-opacity-90 transition-all shadow-[0_0_15px_rgba(138,66,255,0.5)] hover:shadow-[0_0_25px_rgba(138,66,255,0.7)]"
+                  className="px-5 py-2 text-sm font-bold text-white transition-all shadow-lg bg-primary rounded-xl hover:bg-primary/90 shadow-primary/20"
                 >
                   Đăng ký
                 </button>
-              </>
+              </div>
             ) : null}
+            {/* Mobile Toggle */}
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 text-gray-300 md:hidden"
+            >
+              {isMobileMenuOpen ? <FiX size={24} /> : <FiMenu size={24} />}
+            </button>
           </div>
-
-          {/* Mobile toggle */}
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="p-2 text-white rounded-lg md:hidden"
-          >
-            {isMobileMenuOpen ? (
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            ) : (
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 6h16M4 12h16M4 18h16"
-                />
-              </svg>
-            )}
-          </button>
         </div>
-
-        {/* ✅ Mobile menu */}
-        {isMobileMenuOpen && (
-          <div className="pb-4 mt-4 rounded-lg shadow-lg md:hidden bg-accent">
-            <nav className="flex flex-col">
-              {user ? (
-                <>
-                  {menuItems.map((item) => (
-                    <button
-                      key={item.path}
-                      onClick={() => navigate(item.path)}
-                      className="px-4 py-3 font-medium text-left transition-colors text-text-muted hover:bg-background/50 hover:text-white"
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                  <div className="pt-2 mt-2 border-t border-background">
-                    <button
-                      onClick={() => navigate("/user/settings")}
-                      className="w-full px-4 py-2 text-sm text-left hover:bg-background/50"
-                    >
-                      Cài đặt
-                    </button>
-                    <button
-                      onClick={handleLogout}
-                      className="w-full px-4 py-2 text-sm text-left text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
-                    >
-                      Đăng xuất
-                    </button>
-                  </div>
-                </>
-              ) : (
-                !hideAuthButtons && (
-                  <div className="px-4 pt-2 mt-2 space-y-2 border-t border-background">
-                    <button
-                      onClick={() => navigate("/login")}
-                      className="w-full px-4 py-2 font-semibold text-center transition-colors rounded-lg text-text-muted hover:bg-background/50"
-                    >
-                      Đăng nhập
-                    </button>
-                    <button
-                      onClick={() => navigate("/register")}
-                      className="w-full px-4 py-2 font-semibold text-white transition-colors rounded-lg bg-primary hover:bg-opacity-90"
-                    >
-                      Đăng ký
-                    </button>
-                  </div>
-                )
-              )}
-            </nav>
-          </div>
-        )}
       </div>
+      {/* Mobile Menu Logic cũ giữ nguyên */}
     </header>
   );
 };

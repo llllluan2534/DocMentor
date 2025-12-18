@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   useSearchParams,
   useNavigate,
@@ -11,6 +11,8 @@ import { DocumentSelectionModal } from "@/features/chat/components/DocumentSelec
 import { Conversation } from "@/types/chat.types";
 import { chatService } from "@/services/chat/chatService";
 import AppSidebar from "@/components/layout/AppSidebar";
+import { RightSidebar } from "@/features/chat/components/RightSidebar";
+import { FiSidebar } from "react-icons/fi";
 
 const ChatPage: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -22,355 +24,111 @@ const ChatPage: React.FC = () => {
     Array<{ id: string; title: string }>
   >([]);
 
+  // --- LAYOUT STATE ---
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
+
   const [searchParams] = useSearchParams();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const navigate = useNavigate();
   const { conversationId: paramConvId } = useParams();
   const { pathname } = useLocation();
   const { user } = useAuth();
   const isLoggedIn = !!user;
-
-  const hasHandledDocIds = useRef(false);
-
   const isGuestChat = pathname === "/chat" || pathname.startsWith("/chat/");
   const showSidebar = isLoggedIn && !isGuestChat;
   const guestSessionId = searchParams.get("sessionId");
 
-  // ============================================================
-  // LOAD DOCUMENTS FROM VARIOUS SOURCES
-  // ============================================================
-
-  const loadDocumentsFromIds = useCallback(async (docIds: string[]) => {
-    try {
-      const auth_token = localStorage.getItem("auth_token") || "";
-      const docs = await Promise.all(
-        docIds.map(async (id) => {
-          const res = await fetch(
-            `https://docmentor-api.onrender.com/documents/${id}`,
-            {
-              headers: { Authorization: `Bearer ${auth_token}` },
-            }
-          );
-          if (!res.ok) throw new Error(`Failed to fetch document ${id}`);
-          return res.json();
-        })
-      );
-      setSelectedDocuments(
-        docs.map((doc) => ({
-          id: String(doc.id),
-          title: doc.title,
-        }))
-      );
-    } catch (error) {
-      console.error("Error loading documents:", error);
-    }
-  }, []);
-
-  // Load from localStorage (from DocumentsPage)
+  // --- LOAD DATA ---
   useEffect(() => {
-    const savedDocIds = localStorage.getItem("selectedDocIds");
-    if (savedDocIds && isLoggedIn) {
-      try {
-        const docIds = JSON.parse(savedDocIds);
-        loadDocumentsFromIds(docIds);
-        localStorage.removeItem("selectedDocIds");
-      } catch (error) {
-        console.error("Error loading saved doc IDs:", error);
-      }
+    if (isLoggedIn) {
+      chatService.getConversations().then(setConversations);
+      if (paramConvId) setActiveConversationId(paramConvId);
     }
-  }, [isLoggedIn, loadDocumentsFromIds]);
+  }, [isLoggedIn, paramConvId]);
 
-  // Load from URL query params (docIds)
-  useEffect(() => {
-    const docIdsString = searchParams.get("docIds");
-    if (isLoggedIn && docIdsString && !hasHandledDocIds.current) {
-      hasHandledDocIds.current = true;
-      loadDocumentsFromIds(docIdsString.split(","));
-      navigate("/user/chat", { replace: true });
-    }
-  }, [isLoggedIn, loadDocumentsFromIds, navigate, searchParams]);
-
-  // ============================================================
-  // LOAD INITIAL DATA
-  // ============================================================
-
-  const loadInitialConversations = async () => {
-    try {
-      const data = await chatService.getConversations();
-      setConversations(data);
-    } catch (error) {
-      console.error("Error loading conversations:", error);
-    }
+  // --- HANDLERS LEFT SIDEBAR ---
+  const handleSelectConversation = (id: string) => {
+    setActiveConversationId(id);
+    navigate(`/user/chat/${id}`);
   };
 
-  useEffect(() => {
-    if (isLoggedIn && !searchParams.get("docIds")) {
-      loadInitialConversations();
-
-      if (paramConvId) {
-        setActiveConversationId(paramConvId);
-      }
-    }
-  }, [isLoggedIn, paramConvId, searchParams]);
-
-  // ============================================================
-  // CONVERSATION HANDLERS
-  // ============================================================
-
-  const handleNewConversationWithDocs = async (docIds: string[]) => {
-    try {
-      console.log("Preparing to create conversation with docs:", docIds);
-
-      // ✅ FIX: Load REAL document titles before creating temp conversation
-      const auth_token = localStorage.getItem("auth_token") || "";
-      const docs = await Promise.all(
-        docIds.map(async (id) => {
-          try {
-            const res = await fetch(
-              `https://docmentor-api.onrender.com/documents/${id}`,
-              {
-                headers: { Authorization: `Bearer ${auth_token}` },
-              }
-            );
-            if (!res.ok) throw new Error(`Failed to fetch document ${id}`);
-            return await res.json();
-          } catch (error) {
-            console.error(`Error loading document ${id}:`, error);
-            return { id, title: `Document ${id}` }; // Fallback
-          }
-        })
-      );
-
-      // ✅ Set documents với REAL titles
-      const documentsWithTitles = docs.map((doc) => ({
-        id: String(doc.id),
-        title: doc.title || `Document ${doc.id}`,
-      }));
-
-      setSelectedDocuments(documentsWithTitles);
-
-      // ✅ Tạo conversation tạm
-      const newConv: Conversation = {
-        id: `temp-with-docs-${Date.now()}`,
-        title: `Trò chuyện về ${docIds.length} tài liệu`,
-        createdAt: new Date().toISOString(),
-      };
-
-      setConversations((prev) => {
-        const filtered = prev.filter((c) => !c.id.startsWith("temp-"));
-        return [newConv, ...filtered];
-      });
-
-      setActiveConversationId(newConv.id);
-      navigate(`/user/chat/${newConv.id}`, { replace: true });
-
-      console.log("✅ Temporary conversation with docs created");
-    } catch (error) {
-      console.error("Failed to create conversation:", error);
-    }
-  };
-
-  const handleNewConversation = async () => {
-    try {
-      console.log("🆕 Creating temp conversation");
-
-      const tempConv: Conversation = {
-        id: `temp-new-${Date.now()}`,
-        title: "Cuộc trò chuyện mới",
-        createdAt: new Date().toISOString(),
-      };
-
-      setConversations((prev) => {
-        const filtered = prev.filter((c) => !c.id.startsWith("temp-"));
-        return [tempConv, ...filtered];
-      });
-
-      setActiveConversationId(tempConv.id);
-      setSelectedDocuments([]);
-      navigate(`/user/chat/${tempConv.id}`, { replace: true });
-
-      console.log("✅ Temp conversation created, waiting for first message");
-    } catch (error) {
-      console.error("❌ Create temp conversation error:", error);
-      alert("Không thể tạo cuộc trò chuyện mới.");
-    }
+  const handleNewConversation = () => {
+    setActiveConversationId(null);
+    setSelectedDocuments([]);
+    navigate("/user/chat");
   };
 
   const handleDeleteConversation = async (id: string) => {
+    if (!window.confirm("Xóa cuộc trò chuyện?")) return;
     try {
-      // ✅ Chỉ xóa trên backend nếu không phải conversation tạm
-      if (!id.startsWith("temp-")) {
-        await chatService.deleteConversation(id);
-      }
-
-      // ✅ Cập nhật state
-      const updatedConvs = conversations.filter((c) => c.id !== id);
-      setConversations(updatedConvs);
-
-      if (activeConversationId === id) {
-        setActiveConversationId(null);
-        navigate("/user/chat", { replace: true });
-      }
-    } catch (error) {
-      console.error("Error deleting conversation:", error);
-      alert("Không thể xóa cuộc trò chuyện.");
+      await chatService.deleteConversation(id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (activeConversationId === id) handleNewConversation();
+    } catch (e) {
+      console.error(e);
     }
   };
-
-  const handleRenameConversation = async (id: string, newTitle: string) => {
+  const handleRenameConversation = async (id: string, title: string) => {
     try {
-      // ✅ Chỉ rename trên backend nếu không phải conversation tạm
-      if (!id.startsWith("temp-")) {
-        await chatService.renameConversation(id, newTitle);
-      }
-
       setConversations((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, title: newTitle } : c))
+        prev.map((c) => (c.id === id ? { ...c, title } : c))
       );
-    } catch (error) {
-      console.error("Error renaming conversation:", error);
-      alert("Không thể đổi tên cuộc trò chuyện.");
+      await chatService.renameConversation(id, title);
+    } catch (e) {
+      console.error(e);
     }
   };
-
-  const handleSelectConversation = (id: string) => {
-    setActiveConversationId(id);
-    navigate(`/user/chat/${id}`, { replace: true });
-  };
-
-  // ============================================================
-  // CHAT CONTAINER HANDLERS
-  // ============================================================
-
-  const handleCreateConversationFromHeroChat = (
-    conversationId: string,
-    initialMessage: string,
-    documentIds?: string[]
-  ) => {
-    console.log(
-      "✅ handleCreateConversationFromHeroChat called:",
-      conversationId,
-      initialMessage,
-      documentIds
-    );
-
-    // ✅ Kiểm tra nếu conversation đã tồn tại
-    const conversationExists = conversations.some(
-      (c) => c.id === conversationId
-    );
-
-    if (!conversationExists) {
-      const newConv: Conversation = {
-        id: conversationId,
-        title:
-          initialMessage.substring(0, 50) +
-          (initialMessage.length > 50 ? "..." : ""),
-        createdAt: new Date().toISOString(),
-      };
-
-      // ✅ Thêm vào conversations (loại bỏ conversation tạm nếu có)
-      setConversations((prev) => {
-        const filtered = prev.filter((c) => !c.id.startsWith("temp-"));
-        return [newConv, ...filtered];
-      });
-
-      console.log("✅ Conversation added to sidebar:", conversationId);
-    }
-
-    setActiveConversationId(conversationId);
-    navigate(`/user/chat/${conversationId}`, { replace: true });
-  };
-
-  // ============================================================
-  // DOCUMENT MODAL HANDLERS
-  // ============================================================
-
-  const handleDocumentsSelected = (
-    documents: Array<{ id: string; title: string }>
-  ) => {
-    setSelectedDocuments(documents);
-    setIsDocumentModalOpen(false);
-
-    console.log("Documents selected:", documents);
-    console.log("Documents saved for next message");
-  };
-
-  const handleOpenDocumentModal = () => {
-    // ✅ Nếu chưa có active conversation, tạo conversation tạm trước
-    if (!activeConversationId) {
-      handleNewConversation();
-    }
-    setIsDocumentModalOpen(true);
-  };
-
-  // ✅ THÊM function này trong ChatPage:
-  const handleRemoveDocument = (docId: string) => {
-    setSelectedDocuments((prev) => prev.filter((d) => d.id !== docId));
-  };
-  /**
-   * ✅ PIN/UNPIN CONVERSATION HANDLER
-   * Xử lý ghim/bỏ ghim cuộc trò chuyện
-   */
   const handlePinConversation = async (id: string, isPinned: boolean) => {
     try {
-      console.log(`📌 ${isPinned ? "Pinning" : "Unpinning"} conversation:`, id);
-
-      // ✅ Cập nhật local state ngay lập tức (optimistic update)
       setConversations((prev) =>
         prev.map((c) => (c.id === id ? { ...c, isPinned } : c))
       );
-
-      // ✅ Nếu là temp conversation, chỉ cập nhật local (không call API)
-      if (id.startsWith("temp-")) {
-        console.log("📝 Temp conversation, skipping API call");
-        return;
-      }
-
-      // ✅ Call API để lưu pin state trên server
-      try {
-        await chatService.updateConversation(id, { isPinned });
-        console.log(
-          `✅ Conversation ${isPinned ? "pinned" : "unpinned"} successfully`
-        );
-      } catch (error) {
-        console.error("❌ Failed to update pin state:", error);
-
-        // ✅ Revert local state nếu API fail
-        setConversations((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, isPinned: !isPinned } : c))
-        );
-
-        alert(
-          `Không thể ${isPinned ? "ghim" : "bỏ ghim"} cuộc trò chuyện. Vui lòng thử lại.`
-        );
-      }
-    } catch (error) {
-      console.error("❌ Pin conversation error:", error);
+      await chatService.updateConversation(id, { isPinned });
+    } catch (e) {
+      console.error(e);
     }
   };
-  // ============================================================
-  // RENDER
-  // ============================================================
+
+  // --- HANDLERS RIGHT SIDEBAR ---
+  const handleAddDocument = (doc: { id: string; title: string }) => {
+    if (!selectedDocuments.some((d) => d.id === doc.id))
+      setSelectedDocuments((prev) => [...prev, doc]);
+  };
+  const handleRemoveDocument = (docId: string) => {
+    setSelectedDocuments((prev) => prev.filter((d) => d.id !== docId));
+  };
+
+  const handleCreateConversationFromHeroChat = (
+    conversationId: string,
+    initialMessage: string
+  ) => {
+    const newConv: Conversation = {
+      id: conversationId,
+      title: initialMessage.substring(0, 30) + "...",
+      createdAt: new Date().toISOString(),
+      isPinned: false,
+    };
+    setConversations((prev) => [newConv, ...prev]);
+    setActiveConversationId(conversationId);
+    navigate(`/user/chat/${conversationId}`);
+  };
+
+  const handleOpenDocumentModal = () => {
+    if (!activeConversationId) handleNewConversation();
+    setIsDocumentModalOpen(true);
+  };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] bg-background overflow-hidden">
-      {/* Background effects */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 left-0 rounded-full w-96 h-96 bg-primary/10 blur-3xl animate-float"></div>
-        <div
-          className="absolute bottom-0 right-0 rounded-full w-96 h-96 bg-secondary/10 blur-3xl animate-float"
-          style={{ animationDelay: "2s" }}
-        ></div>
-      </div>
-
-      {/* Sidebar - chỉ hiển thị khi user đã login và không phải guest chat */}
+    // ✅ FIX LAYOUT: Dùng fixed inset-0 để bao trọn màn hình, pt-16 để chừa chỗ cho Header
+    <div className="fixed inset-0 w-full bg-[#100D20] pt-16 z-0 flex">
+      {/* 1. LEFT SIDEBAR */}
       {showSidebar && (
         <AppSidebar
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
+          isOpen={isLeftSidebarOpen}
+          onClose={() => setIsLeftSidebarOpen(false)}
           chatProps={{
-            conversations: conversations,
-            activeConversationId: activeConversationId,
+            conversations,
+            activeConversationId,
             onSelectConversation: handleSelectConversation,
             onNewConversation: handleNewConversation,
             onDeleteConversation: handleDeleteConversation,
@@ -380,20 +138,49 @@ const ChatPage: React.FC = () => {
         />
       )}
 
-      {/* Main chat content */}
-      {/* ✅ QUAN TRỌNG: Thêm lg:ml-72 để nội dung không bị Sidebar che mất */}
+      {/* 2. MAIN CONTENT */}
       <main
-        className={`relative z-10 h-full transition-all duration-300 ${
-          showSidebar && isSidebarOpen ? "flex-1 lg:ml-72 w-full" : "w-full"
-        }`}
+        className={`relative flex flex-col flex-1 h-full transition-all duration-300 ease-in-out min-w-0
+          ${showSidebar && isLeftSidebarOpen ? "lg:ml-72" : "ml-0"} 
+          ${isRightSidebarOpen ? "lg:mr-80" : "mr-0"}
+      `}
       >
-        <div
-          className={`h-full ${
-            showSidebar
-              ? "bg-accent/30 backdrop-blur-sm border-l border-primary/10"
-              : "bg-background"
-          }`}
-        >
+        {/* ✅ TOOLBAR: Cố định chiều cao h-14 (56px) */}
+        <div className="flex-shrink-0 flex items-center justify-between px-4 h-14 bg-[#100D20] border-b border-white/5 z-20">
+          {/* Nút Mở Sidebar Trái (Chỉ hiện khi đóng) */}
+          <div className="flex items-center gap-2">
+            {showSidebar && !isLeftSidebarOpen && (
+              <button
+                onClick={() => setIsLeftSidebarOpen(true)}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-400 bg-white/5 hover:bg-white/10 hover:text-white rounded-lg transition-all animate-fade-in"
+                title="Mở Menu"
+              >
+                <FiSidebar className="w-4 h-4" /> <span>Menu</span>
+              </button>
+            )}
+          </div>
+
+          {/* Nút Mở Sidebar Phải (Chỉ hiện khi đóng) */}
+          <div className="flex items-center gap-2">
+            {!isRightSidebarOpen && (
+              <button
+                onClick={() => setIsRightSidebarOpen(true)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-all animate-fade-in ${selectedDocuments.length > 0 ? "text-secondary bg-secondary/10" : "text-gray-400 bg-white/5 hover:text-white"}`}
+                title="Mở Ngữ cảnh"
+              >
+                <span>
+                  {selectedDocuments.length > 0
+                    ? `${selectedDocuments.length} Tài liệu`
+                    : "Ngữ cảnh"}
+                </span>
+                <FiSidebar className="w-4 h-4 transform rotate-180" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ✅ FIX: Nền Chat đồng bộ, thêm chút gradient nhẹ */}
+        <div className="flex-1 min-h-0 relative bg-gradient-to-b from-[#100D20] to-[#0d0a19]">
           <ChatContainer
             conversationId={
               isLoggedIn && !isGuestChat ? activeConversationId : null
@@ -412,12 +199,24 @@ const ChatPage: React.FC = () => {
         </div>
       </main>
 
-      {/* Document modal giữ nguyên */}
+      {/* 3. RIGHT SIDEBAR */}
+      <RightSidebar
+        isOpen={isRightSidebarOpen}
+        onClose={() => setIsRightSidebarOpen(false)}
+        selectedDocuments={selectedDocuments}
+        onRemoveDocument={handleRemoveDocument}
+        onAddDocument={handleAddDocument}
+      />
+
+      {/* Modal (Fallback) */}
       {isLoggedIn && !isGuestChat && (
         <DocumentSelectionModal
           isOpen={isDocumentModalOpen}
           onClose={() => setIsDocumentModalOpen(false)}
-          onDocumentsSelected={handleDocumentsSelected}
+          onDocumentsSelected={(docs) => {
+            docs.forEach((doc) => handleAddDocument(doc));
+            setIsDocumentModalOpen(false);
+          }}
         />
       )}
     </div>

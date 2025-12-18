@@ -50,16 +50,29 @@ class RAGServiceGemini:
         
         # Build map: citation number -> document info
         for idx, chunk in enumerate(retrieved_chunks, 1):
-            doc_id = chunk.get('document_id')
+            raw_doc_id = chunk.get('document_id')
+            
+            # ⚡ FIX: Ép kiểu ID về int để tìm trong doc_map (DB dùng int)
+            try:
+                doc_id = int(raw_doc_id)
+            except (ValueError, TypeError):
+                doc_id = raw_doc_id
+
             doc = doc_map.get(doc_id)
             
+            # ⚡ FIX: Fallback lấy title từ metadata nếu không tìm thấy trong DB
+            doc_title = "Tài liệu không tên"
             if doc:
-                citation_map[idx] = {
-                    'document_id': str(doc_id),
-                    'document_title': doc.title,
-                    'page_number': chunk.get('page_number'),
-                    'similarity_score': chunk.get('score', 0.0)
-                }
+                doc_title = doc.title
+            elif chunk.get('metadata') and 'title' in chunk['metadata']:
+                doc_title = chunk['metadata']['title']
+
+            citation_map[idx] = {
+                'document_id': str(doc_id),
+                'document_title': doc_title, # Luôn có giá trị
+                'page_number': chunk.get('page_number'),
+                'similarity_score': chunk.get('score', 0.0)
+            }
         
         # Find all citations in text: [1], [2], [1, 2]
         citation_pattern = r'\[(\d+(?:,\s*\d+)*)\]'
@@ -96,8 +109,7 @@ class RAGServiceGemini:
             for idx in range(min(3, len(retrieved_chunks))):
                 if idx + 1 in citation_map:
                     sources.append(citation_map[idx + 1])
-        
-        logger.info(f"📚 Extracted {len(sources)} sources from response")
+
         return cleaned_text, sources
 
     # ============================================================================

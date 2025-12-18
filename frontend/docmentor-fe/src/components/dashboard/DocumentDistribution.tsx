@@ -1,5 +1,4 @@
-// src/components/dashboard/DocumentDistribution.tsx
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   PieChart,
   Pie,
@@ -8,84 +7,87 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { useQuery } from "@/hooks/api/useQuery";
-import { API_ENDPOINTS } from "@/config/api";
+import { dashboardService } from "@/services/dashboard/dashboardService";
+import { FiPieChart } from "react-icons/fi";
 
-const COLORS = [
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#ec4899",
-  "#06b6d4",
-  "#f97316",
-];
+const COLORS = ["#8A42FF", "#00D4FF", "#F59E0B", "#EF4444", "#10B981"];
 
 export const DocumentDistribution: React.FC = () => {
-  const { data, loading, error } = useQuery({
-    url: API_ENDPOINTS.DASHBOARD.DOCUMENT_DISTRIBUTION,
-    enabled: true,
-  });
+  // ✅ Thay useQuery bằng state + useEffect
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  // ✅ Fix: Handle null/undefined data
-  const chartData = (data || []).map((item: any) => ({
-    name: item.file_type || "Unknown",
-    value: item.count,
-  }));
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await dashboardService.getDocumentDistribution();
+        setData(res);
+      } catch (err) {
+        console.error("Distribution Error:", err);
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const chartData = Array.isArray(data)
+    ? data.map((item: any) => ({
+        name: item.file_type?.toUpperCase() || "KHÁC",
+        value: item.count || 0,
+      }))
+    : [];
+
+  if (loading)
+    return <div className="h-80 bg-white/5 rounded-2xl animate-pulse"></div>;
+
+  if (error || chartData.length === 0)
+    return (
+      <div className="flex flex-col items-center justify-center h-80 bg-[#1A162D] rounded-2xl border border-white/5">
+        <FiPieChart className="w-10 h-10 mb-3 text-gray-600" />
+        <p className="text-sm text-gray-500">Chưa có dữ liệu phân bố</p>
+      </div>
+    );
 
   return (
-    <div className="p-6 bg-white border border-gray-200 rounded-lg dark:border-gray-700 dark:bg-gray-800">
-      <h3 className="mb-6 text-lg font-semibold text-gray-900 dark:text-white">
-        Phân bố tài liệu theo loại
+    <div className="p-6 bg-[#1A162D]/50 border border-white/5 rounded-2xl backdrop-blur-sm h-full">
+      <h3 className="flex items-center gap-2 mb-6 text-lg font-bold text-white">
+        <FiPieChart className="text-primary" /> Phân bố tài liệu
       </h3>
-
-      {loading && (
-        <div className="flex items-center justify-center h-80">
-          <div className="w-12 h-12 border-b-2 border-blue-600 rounded-full animate-spin"></div>
-        </div>
-      )}
-
-      {error && (
-        <div className="flex items-center justify-center h-80">
-          <div className="text-center">
-            <p className="mb-2 text-red-500">Lỗi tải dữ liệu</p>
-            <p className="text-sm text-gray-500">{error.message}</p>
-          </div>
-        </div>
-      )}
-
-      {!loading && !error && chartData.length === 0 && (
-        <div className="flex items-center justify-center h-80">
-          <div className="text-gray-500">Không có dữ liệu</div>
-        </div>
-      )}
-
-      {!loading && !error && chartData.length > 0 && (
-        <ResponsiveContainer width="100%" height={300}>
+      <div className="w-full h-64">
+        <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
               data={chartData}
               cx="50%"
               cy="50%"
-              labelLine={false}
-              label={({ name, value }) => `${name}: ${value}`}
-              outerRadius={100}
-              fill="#8884d8"
+              innerRadius={60}
+              outerRadius={80}
+              paddingAngle={5}
               dataKey="value"
+              stroke="none"
             >
-              {chartData.map((_: any, index: number) => (
+              {chartData.map((_, index) => (
                 <Cell
                   key={`cell-${index}`}
                   fill={COLORS[index % COLORS.length]}
                 />
               ))}
             </Pie>
-            <Tooltip formatter={(value) => `${value} tài liệu`} />
-            <Legend />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "#1A162D",
+                borderColor: "#8A42FF",
+                borderRadius: "8px",
+              }}
+              itemStyle={{ color: "#fff" }}
+            />
+            <Legend verticalAlign="bottom" height={36} iconType="circle" />
           </PieChart>
         </ResponsiveContainer>
-      )}
+      </div>
     </div>
   );
 };

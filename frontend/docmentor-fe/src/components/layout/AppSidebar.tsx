@@ -13,6 +13,10 @@ import {
   FiFolder,
   FiSettings,
   FiLogOut,
+  FiCheck,
+  FiX,
+  FiMessageSquare,
+  FiSidebar,
 } from "react-icons/fi";
 import { TbPin } from "react-icons/tb";
 import { HiOutlineChatBubbleLeftRight } from "react-icons/hi2";
@@ -32,7 +36,7 @@ interface ChatProps {
 interface AppSidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  chatProps?: ChatProps; // Optional: Chỉ truyền vào khi ở trang Chat
+  chatProps?: ChatProps;
 }
 
 interface GroupedConversations {
@@ -53,7 +57,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   const location = useLocation();
   const [user, setUser] = useState<User | null>(null);
 
-  // --- STATE CHO CHAT SIDEBAR ---
+  // --- STATE ---
   const [editingId, setEditingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(
@@ -73,12 +77,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       older: [],
     });
 
-  // --- 1. FETCH USER DATA (Fix lỗi hiển thị tên) ---
+  // --- 1. FETCH USER ---
   useEffect(() => {
     const fetchUser = async () => {
       try {
         const currentUser = await realAuthService.getCurrentUser();
-        console.log("Sidebar User Data:", currentUser); // Debug
         setUser(currentUser);
       } catch (error) {
         console.error("Failed to fetch user", error);
@@ -93,7 +96,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     navigate("/login");
   };
 
-  // --- 2. LOGIC GROUP CHAT ---
+  // --- 2. GROUP LOGIC ---
   useEffect(() => {
     if (!chatProps) return;
 
@@ -117,14 +120,13 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       };
 
       convs.forEach((conv) => {
-        if (pinnedConversations.has(conv.id)) {
+        if (pinnedConversations.has(conv.id) || conv.isPinned) {
           groups.pinned.push(conv);
           return;
         }
 
         const dateStr = conv.updatedAt || conv.createdAt;
         const convDate = new Date(dateStr);
-
         const convDay = new Date(
           convDate.getFullYear(),
           convDate.getMonth(),
@@ -139,19 +141,14 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
         else groups.older.push(conv);
       });
 
-      const sortDesc = (a: Conversation, b: Conversation) => {
-        const timeA = new Date(a.updatedAt || a.createdAt).getTime();
-        const timeB = new Date(b.updatedAt || b.createdAt).getTime();
-        return timeB - timeA;
-      };
+      // Sort recent first
+      const sortDesc = (a: Conversation, b: Conversation) =>
+        new Date(b.updatedAt || b.createdAt).getTime() -
+        new Date(a.updatedAt || a.createdAt).getTime();
 
-      groups.pinned.sort(sortDesc);
-      groups.today.sort(sortDesc);
-      groups.yesterday.sort(sortDesc);
-      groups.thisWeek.sort(sortDesc);
-      groups.thisMonth.sort(sortDesc);
-      groups.older.sort(sortDesc);
-
+      Object.keys(groups).forEach((key) =>
+        groups[key as keyof GroupedConversations].sort(sortDesc)
+      );
       return groups;
     };
 
@@ -165,13 +162,40 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     setGroupedConversations(groupConversationsByTime(filtered));
   }, [chatProps?.conversations, searchQuery, pinnedConversations]);
 
-  // --- HELPER FUNCTIONS ---
+  // --- HANDLERS ---
+  const handleRenameStart = (id: string, currentTitle: string) => {
+    setEditingId(id);
+    setRenameValue(currentTitle);
+  };
+
+  const handleRenameSubmit = (id: string) => {
+    if (
+      renameValue.trim() &&
+      renameValue.trim() !==
+        chatProps?.conversations.find((c) => c.id === id)?.title
+    ) {
+      chatProps?.onRenameConversation(id, renameValue.trim());
+    }
+    setEditingId(null);
+  };
+
   const handlePinClick = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const newPinned = new Set(pinnedConversations);
-    newPinned.has(id) ? newPinned.delete(id) : newPinned.add(id);
+    if (newPinned.has(id)) newPinned.delete(id);
+    else newPinned.add(id);
     setPinnedConversations(newPinned);
-    chatProps?.onPinConversation?.(id, !newPinned.has(id));
+    chatProps?.onPinConversation?.(id, !pinnedConversations.has(id));
+  };
+
+  const handleDeleteClick = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowDeleteConfirm(id);
+  };
+
+  const handleConfirmDelete = (id: string) => {
+    chatProps?.onDeleteConversation(id);
+    setShowDeleteConfirm(null);
   };
 
   const formatDate = (dateString: string) => {
@@ -181,8 +205,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       const diffMs = now.getTime() - date.getTime();
       const diffMins = Math.floor(diffMs / 60000);
       if (diffMins < 1) return "Vừa xong";
-      if (diffMins < 60) return `${diffMins} phút trước`;
-      if (diffMins < 1440) return `${Math.floor(diffMins / 60)} giờ trước`;
+      if (diffMins < 60) return `${diffMins}p`;
+      if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h`;
       return date.toLocaleDateString("vi-VN", {
         day: "2-digit",
         month: "2-digit",
@@ -192,104 +216,253 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     }
   };
 
-  // --- 3. DISPLAY NAME LOGIC (FIX LỖI KHÁCH) ---
-  // Ưu tiên full_name -> email prefix -> "Khách"
+  const getStatusColor = (id: string) =>
+    id.startsWith("temp-")
+      ? "from-yellow-500/20 to-yellow-600/20 text-yellow-400"
+      : "from-primary/20 to-secondary/20 text-primary";
+
+  // --- SUB-COMPONENT: CONVERSATION ITEM ---
+  const ConversationItem: React.FC<{ conv: Conversation }> = ({ conv }) => {
+    const isActive = chatProps?.activeConversationId === conv.id;
+    const isTemp = conv.id.startsWith("temp-");
+    const isEditing = editingId === conv.id;
+    const showDelete = showDeleteConfirm === conv.id;
+    const isPinned = pinnedConversations.has(conv.id) || conv.isPinned;
+    const docCount =
+      conv.documentCount || (conv.documents ? conv.documents.length : 0);
+
+    return (
+      <div
+        onClick={() =>
+          !isEditing && !showDelete && chatProps?.onSelectConversation(conv.id)
+        }
+        className={`group relative p-2.5 rounded-xl cursor-pointer transition-all duration-200 border ${
+          isActive
+            ? "bg-primary/10 border-primary/30 shadow-md shadow-primary/5"
+            : "bg-transparent border-transparent hover:bg-white/5"
+        }`}
+      >
+        {/* DELETE CONFIRM OVERLAY */}
+        {showDelete && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#100D20]/95 rounded-xl backdrop-blur-sm">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleConfirmDelete(conv.id);
+                }}
+                className="px-3 py-1 text-xs font-bold text-white bg-red-500 rounded-lg hover:bg-red-600"
+              >
+                Xóa
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDeleteConfirm(null);
+                }}
+                className="px-3 py-1 text-xs font-medium text-gray-300 rounded-lg bg-white/10 hover:bg-white/20"
+              >
+                Hủy
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-start gap-3">
+          {/* Icon */}
+          <div
+            className={`flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br ${getStatusColor(conv.id)} flex items-center justify-center mt-0.5 ${isTemp ? "animate-pulse" : ""}`}
+          >
+            <HiOutlineChatBubbleLeftRight className="w-4 h-4" />
+          </div>
+
+          <div className="relative flex-1 min-w-0 overflow-hidden">
+            {isEditing ? (
+              // --- EDIT MODE ---
+              <div className="flex items-center gap-1 h-9">
+                <input
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleRenameSubmit(conv.id);
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                  autoFocus
+                  className="flex-1 min-w-0 bg-[#100D20] border border-primary/50 rounded px-2 py-1 text-xs text-white focus:outline-none"
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRenameSubmit(conv.id);
+                  }}
+                  className="p-1.5 text-green-400 bg-green-400/10 rounded hover:bg-green-400/20"
+                >
+                  <FiCheck size={12} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingId(null);
+                  }}
+                  className="p-1.5 text-red-400 bg-red-400/10 rounded hover:bg-red-400/20"
+                >
+                  <FiX size={12} />
+                </button>
+              </div>
+            ) : (
+              // --- VIEW MODE ---
+              <>
+                <div className="flex items-center justify-between">
+                  {/* Fix lỗi đè chữ: thêm pr-14 để chừa chỗ cho buttons */}
+                  <h3
+                    className={`text-sm truncate pr-14 ${isActive ? "text-white font-medium" : "text-gray-300 group-hover:text-white"}`}
+                  >
+                    {conv.title}
+                  </h3>
+
+                  {/* Status Badges */}
+                  {isPinned && (
+                    <TbPin
+                      size={12}
+                      className="text-primary absolute top-0.5 right-0"
+                    />
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[10px] text-gray-500">
+                    {formatDate(conv.updatedAt || conv.createdAt)}
+                  </span>
+                  {docCount > 0 && (
+                    <span className="flex items-center gap-1 text-[10px] text-primary/80 bg-primary/5 px-1.5 py-0.5 rounded-full border border-primary/10">
+                      <FiFileText size={10} /> {docCount}
+                    </span>
+                  )}
+                </div>
+
+                {/* --- ACTION BUTTONS (Hover) --- */}
+                <div className="absolute right-0 top-0 hidden group-hover:flex items-center gap-0.5 bg-[#100D20] shadow-lg border border-white/10 rounded-lg p-0.5 z-10 animate-fade-in">
+                  <button
+                    onClick={(e) => handlePinClick(conv.id, e)}
+                    className={`p-1.5 rounded-md transition-colors ${isPinned ? "text-primary bg-primary/10" : "text-gray-400 hover:text-white hover:bg-white/10"}`}
+                    title={isPinned ? "Bỏ ghim" : "Ghim"}
+                  >
+                    <TbPin size={12} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRenameStart(conv.id, conv.title);
+                    }}
+                    className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-md transition-colors"
+                    title="Đổi tên"
+                  >
+                    <FiEdit2 size={12} />
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteClick(conv.id, e)}
+                    className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors"
+                    title="Xóa"
+                  >
+                    <FiTrash2 size={12} />
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const displayName = user?.full_name || user?.email?.split("@")[0] || "Khách";
-  const avatarSrc = user?.avatar_url; // Backend trả về avatar_url
+  const avatarSrc = user?.avatar_url;
   const initial = displayName.charAt(0).toUpperCase();
 
-  // --- 4. SUB-COMPONENT: Navigation Links ---
-  const NavLinks = () => (
-    <div className="mb-6 space-y-1">
-      <div className="px-4 mb-2 text-xs font-semibold tracking-wider uppercase text-text-muted">
-        Menu Chính
-      </div>
-      {[
-        {
-          label: "Dashboard",
-          path: "/user/dashboard",
-          icon: <FiHome className="w-4 h-4" />,
-        },
-        {
-          label: "Tài liệu của tôi",
-          path: "/user/documents",
-          icon: <FiFolder className="w-4 h-4" />,
-        },
-        {
-          label: "Chat AI",
-          path: "/user/chat",
-          icon: <HiOutlineChatBubbleLeftRight className="w-4 h-4" />,
-        },
-      ].map((item) => (
-        <Link
-          key={item.path}
-          to={item.path}
-          onClick={onClose}
-          className={`flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg transition-all ${
-            location.pathname.startsWith(item.path)
-              ? "bg-primary/20 text-primary font-medium border border-primary/30"
-              : "text-text-muted hover:bg-accent hover:text-white"
-          }`}
-        >
-          {item.icon}
-          <span className="text-sm">{item.label}</span>
-        </Link>
-      ))}
-      <Link
-        to="/user/settings"
-        onClick={onClose}
-        className="flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg text-text-muted hover:bg-accent hover:text-white transition-all"
-      >
-        <FiSettings className="w-4 h-4" />
-        <span className="text-sm">Cài đặt</span>
-      </Link>
-    </div>
-  );
-
-  // --- 5. RENDER MAIN ---
+  // --- RENDER MAIN ---
   return (
     <aside
-      className={`fixed top-16 left-0 h-[calc(100vh-4rem)] bg-background border-r border-accent z-30 transition-transform duration-300 w-72 flex flex-col ${
-        isOpen ? "translate-x-0" : "-translate-x-full"
-      } lg:translate-x-0 bg-gradient-to-b from-background to-accent/20`}
+      className={`fixed top-16 left-0 h-[calc(100vh-4rem)] bg-[#100D20] border-r border-white/5 z-30 transition-transform duration-300 w-72 flex flex-col
+        ${isOpen ? "translate-x-0" : "-translate-x-full"}
+      `}
     >
-      {/* --- PHẦN 1: NAVIGATION MENU --- */}
-      <div className="flex-shrink-0 pt-4">
-        <NavLinks />
+      {/* 1. HEADER SIDEBAR (Đồng bộ h-14) */}
+      <div className="flex items-center justify-between flex-shrink-0 px-4 border-b h-14 border-white/5">
+        <span className="text-xs font-bold tracking-widest text-gray-500 uppercase">
+          Menu Chính
+        </span>
+        {/* ✅ Nút Đóng Sidebar */}
+        <button
+          onClick={onClose}
+          className="p-1.5 text-gray-500 rounded hover:text-white hover:bg-white/5 transition-colors"
+        >
+          <FiSidebar className="w-4 h-4 transform rotate-180" />
+        </button>
       </div>
 
-      <div className="mx-4 mb-2 border-t border-primary/10"></div>
-
-      {/* --- PHẦN 2: CHAT HISTORY (Chỉ hiện khi có chatProps) --- */}
-      {chatProps && (
-        <div className="flex flex-col flex-1 min-h-0">
-          <div className="px-4 pb-2">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="flex items-center gap-2 text-sm font-bold tracking-wider text-white uppercase">
-                <RiChatHistoryLine /> Lịch sử Chat
-              </h2>
-              <span className="text-xs bg-accent/50 px-2 py-0.5 rounded text-text-muted">
-                {chatProps.conversations.length}
-              </span>
-            </div>
-
-            <button
-              onClick={chatProps.onNewConversation}
-              className="flex items-center justify-center w-full gap-2 py-2 mb-3 text-sm font-medium transition-all border bg-primary/10 hover:bg-primary/20 text-primary border-primary/20 rounded-xl"
+      {/* 2. Navigation */}
+      <div className="flex-shrink-0 px-2 py-3">
+        <nav className="space-y-1">
+          {[
+            { label: "Dashboard", path: "/user/dashboard", icon: <FiHome /> },
+            {
+              label: "Tài liệu của tôi",
+              path: "/user/documents",
+              icon: <FiFolder />,
+            },
+            {
+              label: "Chat AI",
+              path: "/user/chat",
+              icon: <HiOutlineChatBubbleLeftRight />,
+            },
+          ].map((item) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all ${location.pathname.startsWith(item.path) ? "bg-primary/10 text-primary font-medium border border-primary/20" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
             >
-              <FiPlus /> Cuộc trò chuyện mới
-            </button>
+              {item.icon} {item.label}
+            </Link>
+          ))}
+          <Link
+            to="/user/settings"
+            className="flex items-center gap-3 px-3 py-2 mx-2 text-sm text-gray-400 transition-all rounded-lg hover:text-white hover:bg-white/5"
+          >
+            <FiSettings /> Cài đặt
+          </Link>
+        </nav>
+      </div>
 
-            {/* Search Box */}
+      <div className="h-px mx-4 bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
+
+      {/* 3. Chat History */}
+      {chatProps ? (
+        <div className="flex flex-col flex-1 min-h-0">
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="flex items-center gap-2 text-xs font-bold tracking-widest text-gray-400 uppercase">
+                <RiChatHistoryLine /> Lịch sử ({chatProps.conversations.length})
+              </h2>
+              <button
+                onClick={chatProps.onNewConversation}
+                className="p-1.5 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors"
+                title="Chat mới"
+              >
+                <FiPlus size={16} />
+              </button>
+            </div>
+            {/* Search */}
             <div className="relative">
               <input
                 type="text"
                 placeholder="Tìm kiếm..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-accent/40 border border-primary/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white focus:border-primary/40 focus:outline-none"
+                className="w-full bg-[#1A162D] border border-white/10 rounded-lg py-2 pl-8 pr-3 text-xs text-white focus:border-primary/50 focus:outline-none placeholder:text-gray-600"
               />
-              <div className="absolute left-2.5 top-1.5 text-text-muted">
+              <div className="absolute left-2.5 top-2 text-gray-500">
                 <svg
                   className="w-3.5 h-3.5"
                   fill="none"
@@ -307,145 +480,70 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             </div>
           </div>
 
-          {/* List Chat Scrollable */}
-          <div className="flex-1 px-2 pb-2 space-y-4 overflow-y-auto custom-scrollbar">
-            {Object.entries(groupedConversations).map(([key, group]) => {
-              if (group.length === 0) return null;
-              const labels: Record<string, string> = {
-                pinned: "📌 Đã ghim",
-                today: "Hôm nay",
-                yesterday: "Hôm qua",
-                thisWeek: "Tuần này",
-                thisMonth: "Tháng này",
-                older: "Cũ hơn",
-              };
-              return (
-                <div key={key}>
-                  <div className="px-2 py-1 text-[10px] font-bold text-primary/50 uppercase tracking-widest sticky top-0 bg-background/95 backdrop-blur-sm z-10">
-                    {labels[key]}
+          <div className="flex-1 px-3 pb-2 space-y-4 overflow-y-auto custom-scrollbar">
+            {Object.values(groupedConversations).every(
+              (g) => g.length === 0
+            ) ? (
+              <div className="py-10 text-xs text-center text-gray-500">
+                <FiMessageSquare className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                <p>Chưa có cuộc trò chuyện nào</p>
+              </div>
+            ) : (
+              Object.entries(groupedConversations).map(([key, group]) => {
+                if (group.length === 0) return null;
+                const labels: Record<string, string> = {
+                  pinned: "Đã ghim",
+                  today: "Hôm nay",
+                  yesterday: "Hôm qua",
+                  thisWeek: "Tuần này",
+                  thisMonth: "Tháng này",
+                  older: "Cũ hơn",
+                };
+                return (
+                  <div key={key}>
+                    <div className="px-2 py-1.5 text-[10px] font-bold text-gray-500 uppercase sticky top-0 bg-[#100D20]/95 backdrop-blur-sm z-10">
+                      {labels[key]}
+                    </div>
+                    <div className="space-y-1">
+                      {group.map((conv: Conversation) => (
+                        <ConversationItem key={conv.id} conv={conv} />
+                      ))}
+                    </div>
                   </div>
-                  <div className="space-y-0.5">
-                    {group.map((conv: Conversation) => {
-                      const isActive =
-                        chatProps.activeConversationId === conv.id;
-                      return (
-                        <div
-                          key={conv.id}
-                          onClick={() =>
-                            chatProps.onSelectConversation(conv.id)
-                          }
-                          className={`group relative p-2.5 rounded-lg cursor-pointer transition-all ${
-                            isActive
-                              ? "bg-primary/10 border border-primary/20"
-                              : "hover:bg-accent/40 border border-transparent"
-                          }`}
-                        >
-                          <div className="flex items-start gap-2.5">
-                            {/* Icon Chat */}
-                            <div
-                              className={`mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-accent/40 text-text-muted"}`}
-                            >
-                              <HiOutlineChatBubbleLeftRight className="w-4 h-4" />
-                            </div>
-
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between">
-                                <h3
-                                  className={`text-sm truncate ${isActive ? "text-white font-medium" : "text-gray-300"}`}
-                                >
-                                  {conv.title}
-                                </h3>
-                                {/* Actions on Hover */}
-                                <div className="absolute hidden gap-1 rounded shadow-sm group-hover:flex bg-background/80 right-2 top-2">
-                                  <button
-                                    onClick={(e) => handlePinClick(conv.id, e)}
-                                    className="p-1 hover:text-primary"
-                                  >
-                                    <TbPin size={12} />
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      chatProps.onRenameConversation(
-                                        conv.id,
-                                        prompt("Tên mới:", conv.title) ||
-                                          conv.title
-                                      );
-                                    }}
-                                    className="p-1 hover:text-blue-400"
-                                  >
-                                    <FiEdit2 size={12} />
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      chatProps.onDeleteConversation(conv.id);
-                                    }}
-                                    className="p-1 hover:text-red-400"
-                                  >
-                                    <FiTrash2 size={12} />
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[10px] text-text-muted">
-                                  {formatDate(conv.updatedAt || conv.createdAt)}
-                                </span>
-                                {(conv.documentCount || 0) > 0 && (
-                                  <span className="text-[10px] flex items-center gap-0.5 text-primary/70 bg-primary/5 px-1 rounded">
-                                    <FiFileText size={10} />{" "}
-                                    {conv.documentCount}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center flex-1 text-sm text-gray-500">
+          Chọn "Chat AI" để xem lịch sử
         </div>
       )}
 
-      {/* --- PHẦN 3: USER PROFILE (FOOTER) --- */}
-      <div className="p-3 mt-auto border-t border-primary/10 bg-accent/10">
-        <div className="flex items-center gap-3 p-2 transition-colors cursor-pointer rounded-xl hover:bg-accent/30 group">
-          {/* Avatar */}
-          <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 p-[1.5px]">
-            <div className="flex items-center justify-center w-full h-full overflow-hidden rounded-full bg-background">
+      {/* 4. User Profile */}
+      <div className="p-3 mt-auto border-t border-white/5 bg-[#1A162D]/50">
+        <div className="flex items-center gap-3 p-2 transition-colors cursor-pointer rounded-xl hover:bg-white/5 group">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-secondary p-[1px]">
+            <div className="w-full h-full rounded-full bg-[#100D20] flex items-center justify-center overflow-hidden">
               {avatarSrc ? (
-                <img
-                  src={avatarSrc}
-                  alt="Avatar"
-                  className="object-cover w-full h-full"
-                />
+                <img src={avatarSrc} className="object-cover w-full h-full" />
               ) : (
                 <span className="text-xs font-bold text-white">{initial}</span>
               )}
             </div>
           </div>
-
-          {/* Info */}
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-white truncate">
               {displayName}
             </p>
-            <p className="text-[10px] text-text-muted truncate">
-              {user?.email}
-            </p>
+            <p className="text-[10px] text-gray-500 truncate">{user?.email}</p>
           </div>
-
-          {/* Logout Button (hiện khi hover) */}
           <button
             onClick={handleLogout}
-            className="p-2 transition-all opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400"
-            title="Đăng xuất"
+            className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
           >
-            <FiLogOut size={18} />
+            <FiLogOut />
           </button>
         </div>
       </div>
