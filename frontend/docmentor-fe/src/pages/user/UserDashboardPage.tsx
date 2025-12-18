@@ -1,249 +1,149 @@
 import React, { useEffect, useState } from "react";
-import { useQuery } from "@/hooks/api/useQuery";
 import {
-  FileText,
-  MessageSquare,
-  MessageCircle,
-  Star,
-  RefreshCw,
-  AlertCircle,
-} from "lucide-react";
+  FiFileText,
+  FiMessageSquare,
+  FiMessageCircle,
+  FiStar,
+  FiRefreshCw,
+} from "react-icons/fi";
+import { StatBox } from "@/components/dashboard/StatBox";
+import { DocumentDistribution } from "@/components/dashboard/DocumentDistribution";
+import { ProcessingStatus } from "@/components/dashboard/ProcessingStatus";
+// Import service mới tạo
 import {
-  StatBox,
-  DocumentDistribution,
-  WeeklyActivity,
-  RecentQueries,
-  RecentDocuments,
-  PopularQueries,
-  ProcessingStatus,
-} from "@/components/dashboard";
-import { formatFileSize } from "@/utils/formatters";
-import { API_ENDPOINTS } from "@/config/api";
-
-interface DashboardStats {
-  documents: {
-    total: number;
-    processed: number;
-    unprocessed: number;
-    total_size_bytes: number;
-    by_type: Record<string, number>;
-  };
-  queries: {
-    total: number;
-    avg_execution_time_ms: number;
-    total_execution_time_ms: number;
-  };
-  conversations: {
-    total: number;
-  };
-  feedback: {
-    total: number;
-    average_rating: number;
-    positive_feedbacks: number;
-    positive_percentage: number;
-  };
-}
-
-const SkeletonStatBox = () => (
-  <div className="p-6 bg-white border border-gray-200 rounded-lg dark:border-gray-700 dark:bg-gray-800 animate-pulse">
-    <div className="flex items-start justify-between">
-      <div className="flex-1">
-        <div className="w-24 h-4 bg-gray-200 rounded dark:bg-gray-700"></div>
-        <div className="w-16 h-8 mt-3 bg-gray-200 rounded dark:bg-gray-700"></div>
-      </div>
-      <div className="w-12 h-12 bg-gray-200 rounded-lg dark:bg-gray-700"></div>
-    </div>
-  </div>
-);
+  dashboardService,
+  DashboardStats,
+} from "@/services/dashboard/dashboardService";
 
 const UserDashboardPage: React.FC = () => {
-  const {
-    data: stats,
-    loading,
-    error,
-    refetch,
-  } = useQuery({
-    url: API_ENDPOINTS.DASHBOARD.STATS,
-    enabled: true,
-  });
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(
-    null
-  );
+  // Hàm tải dữ liệu dùng service chuẩn
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // ✅ Gọi qua apiClient (có token) nên sẽ không bị lỗi CORS/500 nữa
+      const data = await dashboardService.getStats();
+      setStats(data);
+    } catch (err: any) {
+      console.error("Dashboard Error:", err);
+      // Nếu apiClient đã bắt lỗi 401 thì nó tự redirect, ở đây chỉ catch lỗi mạng khác
+      setError("Không thể tải dữ liệu. Vui lòng kiểm tra kết nối.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (stats) {
-      setDashboardStats(stats);
-    }
-  }, [stats]);
+    fetchData();
+  }, []);
+
+  const handleRefetch = () => {
+    fetchData();
+    // Trick nhỏ để refresh các component con (vì chúng tự gọi API riêng)
+    // Cách tốt nhất là dùng React Context hoặc Redux, nhưng reload nhanh gọn cho project này:
+    window.location.reload();
+  };
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="px-4 py-8 mx-auto max-w-7xl sm:px-6 lg:px-8">
-          <div className="p-6 border border-red-200 rounded-lg bg-red-50 dark:bg-red-900/20 dark:border-red-800">
-            <div className="flex items-start gap-3">
-              <AlertCircle
-                className="text-red-600 dark:text-red-400 mt-0.5"
-                size={24}
-              />
-              <div className="flex-1">
-                <h3 className="mb-2 text-lg font-semibold text-red-900 dark:text-red-100">
-                  Không thể tải dữ liệu Dashboard
-                </h3>
-                <p className="mb-4 text-sm text-red-700 dark:text-red-300">
-                  {error.message}
-                </p>
-                <button
-                  onClick={refetch}
-                  className="flex items-center gap-2 px-4 py-2 text-white transition-colors bg-red-600 rounded-lg hover:bg-red-700"
-                >
-                  <RefreshCw size={16} />
-                  Thử lại
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen py-8 bg-gray-50 dark:bg-gray-900">
-        <div className="px-4 mx-auto max-w-7xl sm:px-6 lg:px-8">
-          <div className="mb-8 animate-pulse">
-            <div className="w-48 h-10 mb-2 bg-gray-200 rounded dark:bg-gray-700"></div>
-            <div className="w-64 h-4 bg-gray-200 rounded dark:bg-gray-700"></div>
-          </div>
-          <div className="grid grid-cols-1 gap-6 mb-8 md:grid-cols-2 lg:grid-cols-4">
-            {[1, 2, 3, 4].map((i) => (
-              <SkeletonStatBox key={i} />
-            ))}
-          </div>
-          <div className="grid grid-cols-1 gap-6 mb-8 lg:grid-cols-3">
-            {[1, 2, 3].map((i) => (
-              <SkeletonStatBox key={i} />
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!dashboardStats) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="px-4 py-8 mx-auto max-w-7xl sm:px-6 lg:px-8">
-          <div className="p-12 text-center bg-white border border-gray-200 rounded-lg dark:bg-gray-800 dark:border-gray-700">
-            <FileText size={64} className="mx-auto mb-4 text-gray-400" />
-            <h3 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
-              Chưa có dữ liệu
-            </h3>
-            <p className="mb-6 text-gray-600 dark:text-gray-400">
-              Bắt đầu bằng cách tải lên tài liệu hoặc đặt câu hỏi
-            </p>
-          </div>
-        </div>
+      <div className="p-8 text-center min-h-screen bg-[#100D20] pt-24">
+        <p className="mb-4 text-red-400">{error}</p>
+        <button
+          onClick={handleRefetch}
+          className="px-4 py-2 text-white rounded-lg bg-primary hover:bg-primary/90"
+        >
+          Thử lại
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen py-8 bg-gray-50 dark:bg-gray-900">
-      <div className="px-4 mx-auto max-w-7xl sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 md:text-4xl dark:text-white">
-              Dashboard
-            </h1>
-            <p className="mt-2 text-gray-600 dark:text-gray-400">
-              Tổng quan hoạt động của bạn
-            </p>
-          </div>
-          <button
-            onClick={refetch}
-            className="flex items-center gap-2 px-4 py-2 transition-all bg-white border border-gray-300 rounded-lg dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
-          >
-            <RefreshCw size={16} className="text-gray-600 dark:text-gray-400" />
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              Làm mới
-            </span>
-          </button>
+    <div className="min-h-screen bg-[#100D20] p-6 lg:p-10 pt-24 text-white">
+      {/* Header */}
+      <div className="flex flex-col items-start justify-between gap-4 mb-10 md:flex-row md:items-center">
+        <div>
+          <h1 className="mb-2 text-3xl font-bold tracking-tight">
+            Xin chào 👋
+          </h1>
+          <p className="text-sm text-gray-400">
+            Đây là tổng quan hoạt động học tập của bạn.
+          </p>
         </div>
+        <button
+          onClick={handleRefetch}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-300 transition-all border bg-white/5 hover:bg-white/10 border-white/10 rounded-xl hover:text-white"
+        >
+          <FiRefreshCw className={loading ? "animate-spin" : ""} /> Làm mới
+        </button>
+      </div>
 
-        <div className="grid grid-cols-1 gap-4 mb-8 sm:grid-cols-2 lg:grid-cols-4 md:gap-6">
-          <StatBox
-            title="Tài liệu"
-            value={dashboardStats.documents.total}
-            unit="tài liệu"
-            icon={<FileText size={24} />}
-            color="blue"
-          />
-          <StatBox
-            title="Câu hỏi"
-            value={dashboardStats.queries.total}
-            unit="câu hỏi"
-            icon={<MessageSquare size={24} />}
-            color="green"
-          />
-          <StatBox
-            title="Cuộc hội thoại"
-            value={dashboardStats.conversations.total}
-            unit="cuộc"
-            icon={<MessageCircle size={24} />}
-            color="purple"
-          />
-          <StatBox
-            title="Đánh giá TB"
-            value={
-              dashboardStats.feedback.average_rating > 0
-                ? dashboardStats.feedback.average_rating.toFixed(1)
-                : "N/A"
-            }
-            unit={dashboardStats.feedback.average_rating > 0 ? "/5 ⭐" : ""}
-            icon={<Star size={24} />}
-            color="orange"
-          />
-        </div>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 gap-6 mb-10 sm:grid-cols-2 lg:grid-cols-4">
+        <StatBox
+          title="Tài liệu"
+          value={stats?.documents.total || 0}
+          icon={<FiFileText className="w-6 h-6" />}
+          color="blue"
+        />
+        <StatBox
+          title="Câu hỏi"
+          value={stats?.queries.total || 0}
+          icon={<FiMessageSquare className="w-6 h-6" />}
+          color="green"
+        />
+        <StatBox
+          title="Hội thoại"
+          value={stats?.conversations.total || 0}
+          icon={<FiMessageCircle className="w-6 h-6" />}
+          color="purple"
+        />
+        <StatBox
+          title="Đánh giá"
+          value={
+            stats?.feedback.average_rating
+              ? stats.feedback.average_rating.toFixed(1)
+              : "N/A"
+          }
+          unit="/ 5.0"
+          icon={<FiStar className="w-6 h-6" />}
+          color="yellow"
+        />
+      </div>
 
-        <div className="grid grid-cols-1 gap-4 mb-8 lg:grid-cols-3 md:gap-6">
-          <StatBox
-            title="Tài liệu đã xử lý"
-            value={dashboardStats.documents.processed}
-            unit={`/ ${dashboardStats.documents.total}`}
-            color="green"
-          />
-          <StatBox
-            title="Dung lượng sử dụng"
-            value={formatFileSize(dashboardStats.documents.total_size_bytes)}
-            color="blue"
-          />
-          <StatBox
-            title="Phản hồi tích cực"
-            value={`${dashboardStats.feedback.positive_percentage || 0}%`}
-            unit={`(${dashboardStats.feedback.positive_feedbacks} feedback)`}
-            color="orange"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 mb-8 lg:grid-cols-2 md:gap-6">
-          <DocumentDistribution />
-          <WeeklyActivity />
-        </div>
-
-        <div className="mb-8">
-          <PopularQueries />
-        </div>
-
-        <div className="mb-8">
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        {/* Left: Status */}
+        <div className="space-y-8 lg:col-span-2">
           <ProcessingStatus />
+          {/* Có thể thêm RecentDocuments, WeeklyActivity ở đây */}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 md:gap-6">
-          <RecentDocuments />
-          <RecentQueries />
+        {/* Right: Charts */}
+        <div className="space-y-8">
+          <DocumentDistribution />
+
+          {/* Storage Box */}
+          <div className="p-6 border bg-blue-500/5 border-blue-500/20 rounded-2xl">
+            <h3 className="mb-2 font-bold text-gray-200">Dung lượng</h3>
+            <div className="mb-2 text-2xl font-bold text-white">
+              {stats
+                ? (stats.documents.total_size_bytes / 1024 / 1024).toFixed(2)
+                : 0}{" "}
+              MB
+            </div>
+            <div className="w-full h-2 bg-gray-700 rounded-full">
+              <div
+                className="h-2 bg-blue-500 rounded-full"
+                style={{ width: "10%" }}
+              ></div>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Giới hạn 100MB</p>
+          </div>
         </div>
       </div>
     </div>

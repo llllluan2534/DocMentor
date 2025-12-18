@@ -1,7 +1,11 @@
-// src/features/chat/components/DocumentSelectionModal.tsx - FIXED
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { FiSearch, FiCheck, FiArrowLeft } from "react-icons/fi";
+import {
+  FiSearch,
+  FiCheck,
+  FiArrowLeft,
+  FiX,
+} from "react-icons/fi";
 import { documentService } from "@/services/document/documentService";
 import { Document } from "@/types/document.types";
 import Button from "@/components/common/Button";
@@ -22,236 +26,152 @@ export const DocumentSelectionModal: React.FC<DocumentSelectionModalProps> = ({
 }) => {
   const navigate = useNavigate();
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [selectedDocIds, setSelectedDocIds] = useState<(string | number)[]>([]); // ✨ Accept both types
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(0);
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
 
-  const DOCUMENTS_PER_PAGE = 8;
-
   useEffect(() => {
-    if (isOpen) {
-      fetchDocuments();
-    }
-  }, [isOpen, currentPage, debouncedSearchQuery]);
+    if (isOpen) fetchDocuments();
+  }, [isOpen, debouncedSearchQuery]);
 
   const fetchDocuments = async () => {
     setIsLoading(true);
     try {
       const response = await documentService.getDocuments({
-        page: currentPage,
-        limit: DOCUMENTS_PER_PAGE,
+        page: 1,
+        limit: 50,
         query: debouncedSearchQuery,
       });
       setDocuments(response.data);
-      setTotalPages(Math.ceil(response.total / DOCUMENTS_PER_PAGE));
     } catch (error) {
-      console.error("Failed to fetch documents:", error);
+      console.error(error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleToggleDocument = (docId: string | number) => {
+  const toggleDoc = (id: string | number) => {
+    const strId = String(id);
     setSelectedDocIds((prev) =>
-      prev.some((id) => String(id) === String(docId)) // ✨ Convert to string for comparison
-        ? prev.filter((id) => String(id) !== String(docId))
-        : [...prev, docId]
+      prev.includes(strId) ? prev.filter((i) => i !== strId) : [...prev, strId]
     );
-  };
-
-  const handleSelectAll = () => {
-    if (selectedDocIds.length === documents.length) {
-      setSelectedDocIds([]);
-    } else {
-      setSelectedDocIds(documents.map((doc) => doc.id));
-    }
   };
 
   const handleConfirm = () => {
-    const selected = documents.filter(
-      (doc) => selectedDocIds.some((id) => String(id) === String(doc.id)) // ✨ Safe comparison
+    const selected = documents.filter((d) =>
+      selectedDocIds.includes(String(d.id))
     );
     onDocumentsSelected(
-      selected.map((doc) => ({
-        id: String(doc.id), // ✨ Convert to string
-        title: doc.title,
-      }))
+      selected.map((d) => ({ id: String(d.id), title: d.title }))
     );
-  };
-
-  const handleNavigateToDocuments = () => {
-    localStorage.setItem(
-      "selectedDocIds",
-      JSON.stringify(selectedDocIds.map((id) => String(id)))
-    );
-    navigate("/user/documents");
-    onClose();
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-accent/95 backdrop-blur-lg border border-primary/30 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+      <div className="bg-[#100D20] border border-primary/20 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl shadow-primary/10">
         {/* Header */}
-        <div className="border-b border-primary/20 p-6">
-          <h2 className="text-2xl font-bold text-white mb-2">
-            Chọn tài liệu để chat
-          </h2>
-          <p className="text-text-muted text-sm">
-            Chọn một hoặc nhiều tài liệu từ "Tài liệu của tôi"
-          </p>
+        <div className="flex items-center justify-between p-6 border-b border-white/5">
+          <div>
+            <h2 className="text-xl font-bold text-white">Chọn ngữ cảnh</h2>
+            <p className="mt-1 text-sm text-gray-400">
+              Chọn tài liệu để AI phân tích và trả lời
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-gray-400 transition-colors rounded-lg hover:text-white bg-white/5 hover:bg-white/10"
+          >
+            <FiX className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* Search Bar */}
-        <div className="border-b border-primary/20 p-4">
-          <div className="relative flex items-center gap-2">
-            <div className="flex-1 relative">
-              <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-              <input
-                type="text"
-                placeholder="Tìm kiếm tài liệu..."
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="w-full pl-10 pr-4 py-2.5 bg-accent/60 border border-primary/20 rounded-lg text-white placeholder-text-muted focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-            </div>
-
-            {/* Nút chuyển sang Documents */}
-            <Button
-              onClick={handleNavigateToDocuments}
-              className="p-2.5 bg-primary/20 border border-primary/30 rounded-lg text-primary hover:bg-primary/30 transition-colors"
-              title="Quản lý tài liệu"
-            >
-              <FiArrowLeft className="w-5 h-5" />
-            </Button>
+        {/* Search */}
+        <div className="p-4 border-b border-white/5 bg-[#1A162D]/50">
+          <div className="relative">
+            <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Tìm kiếm tài liệu..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-[#100D20] border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white text-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/50 outline-none transition-all placeholder:text-gray-600"
+            />
           </div>
         </div>
 
-        {/* Documents List */}
-        <div className="flex-1 overflow-y-auto p-4">
+        {/* List */}
+        <div className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
           {isLoading ? (
-            <div className="flex items-center justify-center h-40">
-              <div className="animate-spin w-8 h-8 border-2 border-primary border-t-secondary rounded-full"></div>
+            <div className="flex justify-center py-8">
+              <div className="w-6 h-6 border-2 rounded-full border-primary border-t-transparent animate-spin"></div>
             </div>
           ) : documents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-40 text-text-muted gap-4">
-              <p>Không tìm thấy tài liệu nào</p>
-              <Button
-                onClick={() => navigate("/user/documents")}
-                className="px-4 py-2 bg-primary/20 border border-primary/30 rounded-lg text-primary hover:bg-primary/30 transition-colors text-sm"
-              >
-                Đến trang Tài liệu
-              </Button>
+            <div className="py-10 text-center text-gray-500">
+              Không tìm thấy tài liệu nào
             </div>
           ) : (
-            <div className="space-y-2">
-              {/* Select All */}
-              <div
-                onClick={handleSelectAll}
-                className="p-3 bg-accent/80 border border-primary/20 rounded-lg cursor-pointer hover:bg-accent/90 transition-colors flex items-center gap-3"
-              >
+            documents.map((doc) => {
+              const isSelected = selectedDocIds.includes(String(doc.id));
+              return (
                 <div
-                  className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                    selectedDocIds.length === documents.length
-                      ? "bg-primary border-primary"
-                      : "border-primary/50 hover:border-primary"
+                  key={doc.id}
+                  onClick={() => toggleDoc(doc.id)}
+                  className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer border transition-all ${
+                    isSelected
+                      ? "bg-primary/10 border-primary/40"
+                      : "bg-[#1A162D] border-transparent hover:border-white/10 hover:bg-[#201c36]"
                   }`}
                 >
-                  {selectedDocIds.length === documents.length && (
-                    <FiCheck className="w-4 h-4 text-white" />
-                  )}
-                </div>
-                <span className="font-medium text-white flex-1">
-                  Chọn tất cả ({documents.length})
-                </span>
-              </div>
-
-              {/* Document Items */}
-              {documents.map((doc) => (
-                <div
-                  key={String(doc.id)} // ✨ Ensure string key
-                  onClick={() => handleToggleDocument(doc.id)}
-                  className="p-3 bg-accent/80 border border-primary/20 rounded-lg cursor-pointer hover:bg-accent/90 transition-colors flex items-center gap-3"
-                >
                   <div
-                    className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
-                      selectedDocIds.some((id) => String(id) === String(doc.id)) // ✨ Safe comparison
+                    className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                      isSelected
                         ? "bg-primary border-primary"
-                        : "border-primary/50 hover:border-primary"
+                        : "border-gray-600"
                     }`}
                   >
-                    {selectedDocIds.some(
-                      (id) => String(id) === String(doc.id)
-                    ) && ( // ✨ Safe comparison
-                      <FiCheck className="w-4 h-4 text-white" />
+                    {isSelected && (
+                      <FiCheck className="w-3.5 h-3.5 text-white" />
                     )}
                   </div>
-
                   <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium truncate">
+                    <p
+                      className={`text-sm font-medium truncate ${isSelected ? "text-white" : "text-gray-300"}`}
+                    >
                       {doc.title}
                     </p>
-                    <p className="text-text-muted text-sm">
-                      {new Date(doc.uploadDate).toLocaleDateString("vi-VN")} •{" "}
-                      {(doc.fileSize / 1024 / 1024).toFixed(2)} MB
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {(doc.fileSize / 1024).toFixed(1)} KB •{" "}
+                      {new Date(doc.uploadDate).toLocaleDateString("vi-VN")}
                     </p>
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })
           )}
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="border-t border-primary/20 p-4 flex items-center justify-center gap-2">
-            <Button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1 text-sm disabled:opacity-50"
-            >
-              Trước
-            </Button>
-            <span className="text-text-muted text-sm">
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1 text-sm disabled:opacity-50"
-            >
-              Sau
-            </Button>
-          </div>
-        )}
-
         {/* Footer */}
-        <div className="border-t border-primary/20 p-4 flex items-center justify-between bg-accent/60">
-          <p className="text-text-muted text-sm">
-            Đã chọn{" "}
-            <span className="font-bold text-primary">
-              {selectedDocIds.length}
-            </span>{" "}
-            tài liệu
-          </p>
-          <div className="flex items-center gap-3">
+        <div className="p-5 border-t border-white/5 bg-[#1A162D]/50 flex justify-between items-center rounded-b-2xl">
+          <button
+            onClick={() => navigate("/user/documents")}
+            className="flex items-center gap-1 text-xs text-gray-400 transition-colors hover:text-primary"
+          >
+            <FiArrowLeft /> Quản lý tài liệu
+          </button>
+          <div className="flex gap-3">
             <Button
               onClick={onClose}
-              className="px-6 py-2.5 bg-accent/80 border border-primary/20 text-white rounded-lg hover:bg-accent transition-colors"
+              className="text-gray-300 bg-transparent border border-white/10 hover:bg-white/5"
             >
               Hủy
             </Button>
             <Button
               onClick={handleConfirm}
               disabled={selectedDocIds.length === 0}
-              className="px-6 py-2.5 bg-gradient-to-r from-primary to-secondary text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transition-transform"
+              className="text-white shadow-lg bg-gradient-to-r from-primary to-secondary shadow-primary/20"
             >
               Xác nhận ({selectedDocIds.length})
             </Button>
