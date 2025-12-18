@@ -1,6 +1,5 @@
-# backend/app/routers/query.py - FIXED LOGIC
 from fastapi import APIRouter, Depends, HTTPException, status, Query as QueryParam
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import func, cast, Date, desc, asc
 from datetime import datetime, timedelta, time
 from typing import Optional
@@ -8,14 +7,13 @@ from typing import Optional
 from ..database import get_db
 from ..models.feedback import Feedback
 from ..models.conversation import Conversation
+from ..models.user import User
+from ..models.document import Query as QueryModel
 from ..schemas.query import QueryRequest, QueryResponse, QueryHistory, QueryFeedbackCreate
 from ..services.rag_service_gemini import RAGServiceGemini
 from ..utils.security import get_current_user
-from ..models.user import User
-from ..models.document import Query as QueryModel
 
 router = APIRouter(prefix="/query", tags=["Query & RAG"])
-
 
 # ==========================================================
 # 1) SEND QUERY - MAIN ENDPOINT
@@ -23,20 +21,16 @@ router = APIRouter(prefix="/query", tags=["Query & RAG"])
 @router.post("/", response_model=QueryResponse)
 async def query_documents(
     request: QueryRequest,
-    conversation_id: Optional[int] = QueryParam(None),  # ✅ Query param
+    conversation_id: Optional[int] = QueryParam(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Send query to RAG service.
-    
-    ✅ If conversation_id provided:
-       - Validate conversation belongs to user
-       - Link query to conversation via FK
     """
     rag_service = RAGServiceGemini()
 
-    # ✅ Validate conversation if provided
+    # Validate conversation if provided
     conversation = None
     if conversation_id:
         conversation = db.query(Conversation).filter(
@@ -50,7 +44,7 @@ async def query_documents(
                 detail="Conversation not found or not owned by you"
             )
 
-    # ✅ Execute RAG query
+    # Execute RAG query
     result = await rag_service.query_documents(
         db=db,
         user=current_user,
@@ -59,32 +53,27 @@ async def query_documents(
         max_results=request.max_results
     )
 
-    # ✅ No documents found case
-    if "query_id" not in result:
+    # No documents found case or empty result
+    if "query_id" not in result or not result["query_id"]:
         return {
             "query_id": None,
             "query_text": request.query_text,
-            "answer": result["answer"],
-            "sources": result["sources"],
-            "confidence_score": result["confidence_score"],
-            "processing_time_ms": result["processing_time_ms"],
+            "answer": result.get("answer", ""),
+            "sources": result.get("sources", []),
+            "confidence_score": result.get("confidence_score", 0.0),
+            "processing_time_ms": result.get("processing_time_ms", 0),
             "created_at": datetime.utcnow()
         }
 
-    # ✅ Link query to conversation if provided
+    # Link query to conversation if provided
     if conversation and result.get("query_id"):
         try:
-            query = db.query(QueryModel).filter(QueryModel.id == result["query_id"]).first()
+            query_record = db.query(QueryModel).filter(QueryModel.id == result["query_id"]).first()
             
-            if query:
-                # ✅ Set FK directly
-                query.conversation_id = conversation.id
-                
-                # Update conversation timestamp
+            if query_record:
+                query_record.conversation_id = conversation.id
                 conversation.updated_at = datetime.utcnow()
-                
                 db.commit()
-                print(f"✅ Linked query {query.id} to conversation {conversation.id}")
         except Exception as e:
             print(f"⚠️ Failed to link query to conversation: {e}")
             db.rollback()
@@ -112,27 +101,24 @@ def get_query_history(
     search: Optional[str] = QueryParam(None),
     sort_by: Optional[str] = QueryParam("date", regex="^(date|rating|relevance)$"),
     order: Optional[str] = QueryParam("desc", regex="^(asc|desc)$"),
-    conversation_id: Optional[int] = QueryParam(None),  # ✅ Filter by conversation
+    conversation_id: Optional[int] = QueryParam(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get query history with optional conversation filter"""
-    
-    q = db.query(QueryModel).filter(QueryModel.user_id == current_user.id)
-    
-    # ✅ Filter by conversation if provided
+    # ⭐ ADD EAGER LOADING to avoid N+1
+    # Sử dụng dấu ngoặc bao quanh để tránh SyntaxError
+    q = (
+        db.query(QueryModel)
+        .options(
+            selectinload(QueryModel.documents),   # Đảm bảo QueryModel có relationship 'documents'
+            selectinload(QueryModel.feedbacks),   # Đảm bảo QueryModel có relationship 'feedbacks'
+            joinedload(QueryModel.user),          # Đảm bảo QueryModel có relationship 'user'
+        )
+        .filter(QueryModel.user_id == current_user.id)
+    )
+
+    # Filter by Conversation ID
     if conversation_id:
-        conversation = db.query(Conversation).filter(
-            Conversation.id == conversation_id,
-            Conversation.user_id == current_user.id
-        ).first()
-        
-        if not conversation:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Conversation not found"
-            )
-        
         q = q.filter(QueryModel.conversation_id == conversation_id)
 
     # Date filters
@@ -151,14 +137,22 @@ def get_query_history(
         safe = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         q = q.filter(QueryModel.query_text.ilike(f"%{safe}%", escape="\\"))
 
-    # Sort
-    sort_col = QueryModel.created_at if sort_by != "rating" else QueryModel.rating
-    q = q.order_by(desc(sort_col) if order == "desc" else asc(sort_col))
+    # Sorting
+    sort_col = QueryModel.created_at
+    if sort_by == "rating":
+        sort_col = QueryModel.rating
+    elif sort_by == "relevance":
+        sort_col = QueryModel.created_at # Hoặc cột logic khác nếu có
 
+    if order == "desc":
+        q = q.order_by(desc(sort_col))
+    else:
+        q = q.order_by(asc(sort_col))
+
+    # Total & Pagination
     total = q.count()
     items = q.offset(skip).limit(limit).all()
 
-    # Format response
     formatted = []
     for row in items:
         sources = row.sources or []
@@ -192,7 +186,62 @@ def get_query_history(
 
 
 # ==========================================================
-# 3) GET QUERY DETAIL
+# 3) STATISTICS (GET /query/stats)
+# ==========================================================
+@router.get("/stats")
+def get_query_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # 1️⃣ Single aggregated query: total + avg rating
+    totals = (
+        db.query(
+            func.count(QueryModel.id).label("total"),
+            func.avg(QueryModel.rating).label("avg_rating")
+        )
+        .filter(QueryModel.user_id == current_user.id)
+        .first()
+    )
+
+    total_queries = int(totals.total or 0)
+    avg_rating_numeric = totals.avg_rating
+    avg_rating = round(float(avg_rating_numeric), 2) if avg_rating_numeric else 0.0
+
+    # 2️⃣ Activity 7 ngày gần đây
+    now = datetime.utcnow()
+    start_dt = datetime.combine((now.date() - timedelta(days=6)), time.min)
+
+    rows = (
+        db.query(
+            cast(QueryModel.created_at, Date).label("day"),
+            func.count(QueryModel.id).label("cnt")
+        )
+        .filter(QueryModel.user_id == current_user.id)
+        .filter(QueryModel.created_at >= start_dt)
+        .group_by(cast(QueryModel.created_at, Date))
+        .order_by(cast(QueryModel.created_at, Date))
+        .all()
+    )
+
+    day_map = {r.day: int(r.cnt) for r in rows}
+
+    activity = []
+    for i in range(7):
+        d = now.date() - timedelta(days=6 - i)
+        activity.append({
+            "date": d.isoformat(),
+            "count": day_map.get(d, 0)
+        })
+
+    return {
+        "total_queries": total_queries,
+        "avg_rating": avg_rating,
+        "activity_last_7_days": activity
+    }
+
+
+# ==========================================================
+# 4) GET QUERY DETAIL
 # ==========================================================
 @router.get("/{query_id}", response_model=QueryResponse)
 def get_query_detail(
@@ -200,63 +249,66 @@ def get_query_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get single query detail"""
-    
-    query = db.query(QueryModel).filter(
-        QueryModel.id == query_id,
-        QueryModel.user_id == current_user.id
-    ).first()
-    
-    if not query:
+    query_record = (
+        db.query(QueryModel)
+        .filter(QueryModel.id == query_id, QueryModel.user_id == current_user.id)
+        .first()
+    )
+    if not query_record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Query not found")
 
     # Normalize sources
-    sources = query.sources or []
-    if isinstance(sources, dict) and "sources" in sources:
-        sources = sources["sources"]
-    elif not isinstance(sources, list):
-        sources = []
+    sources = query_record.sources or []
+    if isinstance(sources, dict) and "sources" in sources and isinstance(sources["sources"], list):
+        out_sources = sources["sources"]
+    elif isinstance(sources, list):
+        out_sources = sources
+    else:
+        out_sources = []
 
-    normalized_sources = [
-        {
-            "document_id": s.get("document_id"),
-            "document_title": s.get("document_title"),
-            "page_number": s.get("page_number"),
-            "similarity_score": s.get("similarity_score"),
-            "text": s.get("text"),
-        }
-        for s in sources if isinstance(s, dict)
-    ]
+    normalized_sources = []
+    for s in out_sources:
+        if not isinstance(s, dict):
+            continue
+        normalized_sources.append(
+            {
+                "document_id": s.get("document_id"),
+                "document_title": s.get("document_title"),
+                "page_number": s.get("page_number"),
+                "similarity_score": s.get("similarity_score"),
+                "text": s.get("text"),
+            }
+        )
 
     return {
-        "query_id": query.id,
-        "query_text": query.query_text,
-        "answer": query.response_text or "",
+        "query_id": query_record.id,
+        "query_text": query_record.query_text,
+        "answer": query_record.response_text or "",
         "sources": normalized_sources,
-        "processing_time_ms": query.execution_time or 0,
+        "processing_time_ms": query_record.execution_time or 0,
         "confidence_score": 0.0,
-        "created_at": query.created_at,
+        "created_at": query_record.created_at,
     }
-    
-# -------------------------------
-# 4) Submit feedback (UNCHANGED)
-# -------------------------------
+
+
+# ==========================================================
+# 5) SUBMIT FEEDBACK
+# ==========================================================
 @router.post("/feedback", status_code=status.HTTP_200_OK)
 def submit_feedback(
     feedback: QueryFeedbackCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Submit rating/feedback for a query"""
-    query = (
+    query_record = (
         db.query(QueryModel)
         .filter(QueryModel.id == feedback.query_id)
         .first()
     )
-    if not query:
+    if not query_record:
         raise HTTPException(status_code=404, detail="Query not found")
 
-    if query.user_id != current_user.id:
+    if query_record.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: not your query")
 
     existing_feedback = (
@@ -279,14 +331,15 @@ def submit_feedback(
 
     db.add(new_feedback)
     
-    if hasattr(query, "rating"):
-        query.rating = feedback.rating
+    # Cập nhật rating vào bảng Query nếu có cột rating
+    if hasattr(query_record, "rating"):
+        query_record.rating = feedback.rating
 
     db.commit()
     db.refresh(new_feedback)
 
     return {
-        "query_id": query.id,
+        "query_id": query_record.id,
         "feedback": {
             "rating": new_feedback.rating,
             "text": new_feedback.feedback_text,
@@ -296,25 +349,24 @@ def submit_feedback(
     }
 
 
-# -------------------------------
-# 5) Get feedback (UNCHANGED)
-# -------------------------------
+# ==========================================================
+# 6) GET FEEDBACK
+# ==========================================================
 @router.get("/{query_id}/feedback", status_code=200)
 def get_feedback(
     query_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get feedback for a query"""
-    query = (
+    query_record = (
         db.query(QueryModel)
         .filter(QueryModel.id == query_id)
         .first()
     )
-    if not query:
+    if not query_record:
         raise HTTPException(status_code=404, detail="Query not found")
 
-    if query.user_id != current_user.id:
+    if query_record.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: not your query")
 
     feedback = (
@@ -334,69 +386,24 @@ def get_feedback(
     }
 
 
-# -------------------------------
-# 6) Delete query (UNCHANGED)
-# -------------------------------
+# ==========================================================
+# 7) DELETE QUERY
+# ==========================================================
 @router.delete("/{query_id}", status_code=status.HTTP_200_OK)
 def delete_query(
     query_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Delete a query belonging to current user"""
-    query = (
+    query_record = (
         db.query(QueryModel)
         .filter(QueryModel.id == query_id, QueryModel.user_id == current_user.id)
         .first()
     )
-    if not query:
+    if not query_record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Query not found")
 
-    db.delete(query)
+    db.delete(query_record)
     db.commit()
 
     return {"message": "Query deleted successfully", "deleted_id": query_id}
-
-
-# -------------------------------
-# 7) Statistics (UNCHANGED)
-# -------------------------------
-@router.get("/stats")
-def get_query_stats(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Return query statistics"""
-    total_q = db.query(func.count(QueryModel.id)).filter(QueryModel.user_id == current_user.id).scalar() or 0
-
-    avg_rating = 0.0
-    try:
-        avg = db.query(func.avg(Feedback.rating)).filter(
-            Feedback.user_id == current_user.id
-        ).scalar()
-        avg_rating = round(float(avg), 2) if avg is not None else 0.0
-    except Exception:
-        avg_rating = 0.0
-
-    now = datetime.utcnow()
-    start_dt = datetime.combine((now.date() - timedelta(days=6)), time.min)
-
-    try:
-        daily_counts = (
-            db.query(cast(QueryModel.created_at, Date).label("d"), func.count(QueryModel.id).label("cnt"))
-            .filter(QueryModel.user_id == current_user.id)
-            .filter(QueryModel.created_at >= start_dt)
-            .group_by(cast(QueryModel.created_at, Date))
-            .order_by(cast(QueryModel.created_at, Date))
-            .all()
-        )
-        daily_map = {row.d: int(row.cnt) for row in daily_counts}
-    except Exception:
-        daily_map = {}
-
-    activity = []
-    for i in range(7):
-        t = (now.date() - timedelta(days=6 - i))
-        activity.append({"date": t.isoformat(), "count": int(daily_map.get(t, 0))})
-
-    return {"total_queries": int(total_q), "avg_rating": float(avg_rating), "activity_last_7_days": activity}

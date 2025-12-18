@@ -13,19 +13,28 @@ const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({
   const buttonRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // 1. Kiểm tra Client ID
+    // ==========================================
+    // 👇 ĐOẠN CODE DEBUG (MÁY DÒ LỖI) 👇
+    // ==========================================
+    console.log("🔴 DEBUG ENV - Toàn bộ biến:", import.meta.env);
+    console.log("🔴 DEBUG ENV - Client ID:", import.meta.env.VITE_GOOGLE_CLIENT_ID);
+    
+    // Kiểm tra xem biến có bị undefined hay chuỗi rỗng không
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    if (!clientId) {
+    
+    if (!clientId || clientId.trim() === "") {
+      console.error("❌ LỖI: Không tìm thấy VITE_GOOGLE_CLIENT_ID. Hãy kiểm tra lại file .env");
       onError("Google Client ID chưa được cấu hình trong .env");
       return;
     }
+    // ==========================================
 
     // 2. Hàm load script Google Identity Services
     const loadGoogleScript = () => {
       const scriptId = "google-client-script";
       // Tránh load script nhiều lần
       if (document.getElementById(scriptId)) {
-        initializeGoogle();
+        initializeGoogle(clientId); // Truyền clientId vào hàm init
         return;
       }
 
@@ -34,18 +43,18 @@ const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({
       script.id = scriptId;
       script.async = true;
       script.defer = true;
-      script.onload = initializeGoogle;
+      script.onload = () => initializeGoogle(clientId);
       script.onerror = () => onError("Không thể tải Google Sign-In script");
       document.body.appendChild(script);
     };
 
     // 3. Khởi tạo và Render nút
-    const initializeGoogle = () => {
+    const initializeGoogle = (validClientId: string) => {
       if (!window.google) return;
 
       try {
         window.google.accounts.id.initialize({
-          client_id: clientId,
+          client_id: validClientId,
           callback: (response: any) => {
             if (response.credential) {
               // Trả về credential string cho parent component xử lý
