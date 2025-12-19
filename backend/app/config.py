@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE: int = 52428800  # 50MB
     ALLOWED_EXTENSIONS: str = ".pdf,.docx,.txt"
     
+    # Supabase
+    SUPABASE_URL: str
+    SUPABASE_KEY: str
+    SUPABASE_BUCKET: str = "documents"
+    
     # Environment
     ENVIRONMENT: str = "development"
     

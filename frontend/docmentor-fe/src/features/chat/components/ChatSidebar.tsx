@@ -51,10 +51,6 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
     new Set()
   );
 
-  // ... (Giữ nguyên logic groupConversationsByTime và useEffect)
-  // ... (Bạn copy lại phần logic state và group từ code cũ vào đây, không thay đổi gì phần logic này)
-  // Để ngắn gọn, tôi sẽ tập trung vào phần render ConversationItem bên dưới
-
   // --- LOGIC GIỮ NGUYÊN (Copy from your old code) ---
   const [groupedConversations, setGroupedConversations] =
     useState<GroupedConversations>({

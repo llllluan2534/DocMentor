@@ -29,14 +29,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   conversationId,
   sessionId: propSessionId,
   onNewConversation,
-  onCreateConversationFromHeroChat,
   selectedDocuments = [],
   onOpenDocumentModal,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isReplying, setIsReplying] = useState(false); // Chỉ dùng để disable input
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [isReplying, setIsReplying] = useState(false);
+  const [searchParams] = useSearchParams();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -48,72 +47,57 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   // --- 1. LOAD HISTORY ---
   useEffect(() => {
     const loadData = async () => {
-      if (contextId) {
-        setIsLoading(true);
-        try {
-          if (contextId.startsWith("temp-")) {
-            setMessages([]);
-            setIsLoading(false);
-            return;
-          }
-
-          let history = await chatService.getChatHistory(contextId);
-
-          // Logic khôi phục file từ state (giữ nguyên như cũ)
-          const navigationState = location.state as any;
-          if (history.length > 0 && navigationState) {
-            const firstUserMsgIndex = history.findIndex(
-              (m) => m.sender === "user"
-            );
-            if (firstUserMsgIndex !== -1) {
-              let updatedMsg = { ...history[firstUserMsgIndex] };
-              if (!updatedMsg.attachment && navigationState.tempAttachment) {
-                updatedMsg.attachment = navigationState.tempAttachment;
-              }
-              if (
-                (!updatedMsg.attachedDocuments ||
-                  updatedMsg.attachedDocuments.length === 0) &&
-                navigationState.tempDocs
-              ) {
-                updatedMsg.attachedDocuments = navigationState.tempDocs;
-              }
-              history[firstUserMsgIndex] = updatedMsg;
-            }
-          }
-          setMessages(history);
-        } catch (error) {
-          console.error("❌ Lỗi tải lịch sử chat:", error);
-          setMessages([]);
-        } finally {
-          setIsLoading(false);
-        }
-      } else {
+      if (!contextId) {
         setMessages([]);
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        if (contextId.startsWith("temp-")) {
+          setMessages([]);
+          setIsLoading(false);
+          return;
+        }
+
+        const history = await chatService.getChatHistory(contextId);
+
+        const navigationState = location.state as any;
+        if (history.length > 0 && navigationState) {
+          const firstUserMsgIndex = history.findIndex(
+            (m) => m.sender === "user"
+          );
+          if (firstUserMsgIndex !== -1) {
+            const updatedMsg = { ...history[firstUserMsgIndex] };
+            if (navigationState.tempAttachment)
+              updatedMsg.attachment = navigationState.tempAttachment;
+            if (navigationState.tempDocs)
+              updatedMsg.attachedDocuments = navigationState.tempDocs;
+            history[firstUserMsgIndex] = updatedMsg;
+          }
+        }
+        setMessages(history);
+      } catch (error) {
+        console.error("❌ Lỗi tải lịch sử chat:", error);
+        setMessages([]);
+      } finally {
+        setIsLoading(false);
       }
     };
     loadData();
   }, [contextId]);
 
-  // --- 2. HANDLE SEND MESSAGE (OPTIMISTIC UI) ---
-  const handleSendMessage = async (messageText: string, file?: File) => {
-    if ((!messageText.trim() && !file) || isReplying) return;
+  // --- 2. LOGIC TẠO CONVERSATION MỚI (TỪ HERO CHAT) ---
+  const handleCreateNewConversation = async (
+    messageText: string,
+    file?: File
+  ) => {
+    // 1. Optimistic UI: Hiện tin nhắn User + Loading AI
+    const tempUserMsgId = `msg-user-${Date.now()}`;
+    const tempAiMsgId = `msg-ai-temp-${Date.now()}`;
 
-    setIsReplying(true);
-
-    // Xử lý tạo Conversation mới (Logic cũ giữ nguyên, tóm tắt lại)
-    if (!contextId || contextId.startsWith("temp-")) {
-      // ... (Logic tạo conversation mới - giữ nguyên code cũ của bạn ở đây)
-      // Để ngắn gọn, tôi tập trung vào logic gửi tin nhắn khi đã có conversation
-      await handleCreateNewConversation(messageText, file);
-      return;
-    }
-
-    // --- Gửi tin nhắn trong Conversation đã tồn tại ---
-    const currentConvId = parseInt(contextId, 10);
-
-    // 1. Tạo tin nhắn User (Hiển thị ngay lập tức)
     const userMessage: ChatMessage = {
-      id: `msg-user-${Date.now()}`,
+      id: tempUserMsgId,
       text: messageText || (file ? `Phân tích file: ${file.name}` : ""),
       sender: "user",
       timestamp: new Date().toISOString(),
@@ -125,103 +109,161 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         selectedDocuments.length > 0 ? selectedDocuments : undefined,
     };
 
-    // 2. Tạo tin nhắn AI giả (Placeholder Loading)
-    const tempAiId = `msg-ai-temp-${Date.now()}`;
     const aiPlaceholder: ChatMessage = {
-      id: tempAiId,
-      text: "", // Rỗng để MessageBubble hiển thị animation loading
+      id: tempAiMsgId,
+      text: "",
       sender: "ai",
       timestamp: new Date().toISOString(),
-      status: "loading", // ⚡ QUAN TRỌNG: Trạng thái này sẽ kích hoạt animation 3 chấm
+      status: "loading",
     };
 
-    // Cập nhật UI ngay lập tức
-    setMessages((prev) => [...prev, userMessage, aiPlaceholder]);
+    setMessages([userMessage, aiPlaceholder]);
 
     try {
-      // Upload file nếu có
+      // 2. Upload file nếu có
       let uploadedDocId = null;
       if (file) {
-        const doc = await documentService.uploadDocument(file, file.name);
-        uploadedDocId = doc.id;
+        try {
+          const doc = await documentService.uploadDocument(file, file.name);
+          uploadedDocId = doc.id;
+        } catch (e) {
+          console.error("Upload failed", e);
+          alert("Lỗi tải file. Vui lòng thử lại.");
+          setMessages([]);
+          return;
+        }
       }
 
-      // Prepare Doc IDs
       const docIds = selectedDocuments
         .map((d) => parseInt(d.id, 10))
         .filter((id) => !isNaN(id));
       if (uploadedDocId) docIds.push(parseInt(String(uploadedDocId)));
 
-      // Gọi API
-      const response = await queryApiService.sendQuery(
-        messageText || `Phân tích file: ${file?.name}`,
-        docIds,
-        5,
-        currentConvId
-      );
+      const title = messageText.substring(0, 50) || "Cuộc trò chuyện mới";
 
-      // 3. Cập nhật lại tin nhắn AI thật khi có phản hồi
-      // Map response.sources to the expected SourceReference shape to satisfy TypeScript
-      const mappedSources = (response.sources || []).map((s: any) => ({
-        documentId:
-          s.documentId ?? s.document_id ?? s.id ?? String(s.source_id ?? ""),
-        documentTitle:
-          s.documentTitle ?? s.document_title ?? s.title ?? s.name ?? "Tài liệu",
-        pageNumber:
-          s.pageNumber ?? s.page_number ?? s.page ?? s.p ?? undefined,
-        similarityScore:
-          s.similarityScore ?? s.similarity_score ?? s.score ?? undefined,
-      }));
+      // 3. Gọi service tạo Conversation (Service này đã tự gửi query đầu tiên bên trong nó rồi)
+      // ⚡ QUAN TRỌNG: Không cần gọi queryApiService.sendQuery thủ công nữa!
+      const newConv = await chatService.createNewConversation({
+        title,
+        initialMessage: messageText,
+        documentIds: docIds.map(String), // Service expect string/number array
+      });
 
-      setMessages((prev) =>
-        prev.map((msg) => {
-          if (msg.id === tempAiId) {
-            return {
-              ...msg,
-              id: `msg-ai-${response.query_id}`,
-              text: response.answer,
-              status: "sent",
-              sources: mappedSources, // now in the correct shape
-            };
-          }
-          if (msg.id === userMessage.id) {
-            return { ...msg, status: "sent" };
-          }
-          return msg;
-        })
-      );
-    } catch (error: any) {
-      console.error("❌ Send message error:", error);
+      if (!newConv || !newConv.id)
+        throw new Error("Failed to create conversation");
 
-      // Xóa tin nhắn placeholder nếu lỗi
-      setMessages((prev) => prev.filter((m) => m.id !== tempAiId));
+      // 4. Update URL (Quan trọng: replace để không back lại trang trống)
+      navigate(`/user/chat/${newConv.id}`, { replace: true });
 
-      // Update trạng thái user message thành error
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === userMessage.id ? { ...m, status: "error" } : m
-        )
-      );
+      // 5. Vì createNewConversation không trả về response AI text ngay,
+      // ta gọi getChatHistory để lấy tin nhắn AI thật vừa được tạo.
+      // Điều này đảm bảo dữ liệu đồng bộ 100% với backend.
+      const history = await chatService.getChatHistory(newConv.id);
+      setMessages(history);
 
-      alert("Lỗi gửi tin nhắn. Vui lòng thử lại.");
+      // 6. Notify sidebar
+      if (onNewConversation) {
+        onNewConversation(newConv);
+      }
+    } catch (error) {
+      console.error("❌ Failed to start conversation:", error);
+      setMessages([]);
+      alert("Không thể bắt đầu cuộc trò chuyện. Vui lòng thử lại.");
     } finally {
       setIsReplying(false);
     }
   };
 
-  // Helper: Tạo conversation mới (Giữ nguyên logic cũ nhưng cập nhật state messages tương tự)
-  const handleCreateNewConversation = async (
-    messageText: string,
-    file?: File
-  ) => {
-    // ... (Copy logic cũ của bạn, nhưng đảm bảo setMessages theo flow User -> AI Placeholder -> AI Real)
-    // Do giới hạn độ dài, bạn hãy áp dụng logic "Placeholder" tương tự vào hàm này nhé.
-    // Tạm thời tôi để console.log để bạn biết vị trí.
-    console.log("Creating new conversation logic here...");
-    // Khi implement, nhớ:
-    // 1. setMessages([...userMsg, aiPlaceholder])
-    // 2. Gọi API create
-    // 3. Navigate
+  // --- 3. HANDLE SEND MESSAGE (CHUNG - KHI ĐÃ CÓ CONVERSATION ID) ---
+  const handleSendMessage = async (messageText: string, file?: File) => {
+    if ((!messageText.trim() && !file) || isReplying) return;
+
+    setIsReplying(true);
+
+    if (!contextId || contextId.startsWith("temp-")) {
+      await handleCreateNewConversation(messageText, file);
+      return;
+    }
+
+    const currentConvId = parseInt(contextId, 10);
+
+    const userMessage: ChatMessage = {
+      id: `msg-user-${Date.now()}`,
+      text: messageText,
+      sender: "user",
+      timestamp: new Date().toISOString(),
+      status: "sending",
+      attachment: file
+        ? { fileName: file.name, fileSize: file.size, fileType: file.type }
+        : undefined,
+      attachedDocuments:
+        selectedDocuments.length > 0 ? selectedDocuments : undefined,
+    };
+
+    const aiPlaceholder: ChatMessage = {
+      id: `msg-ai-temp-${Date.now()}`,
+      text: "",
+      sender: "ai",
+      timestamp: new Date().toISOString(),
+      status: "loading",
+    };
+
+    setMessages((prev) => [...prev, userMessage, aiPlaceholder]);
+
+    try {
+      let uploadedDocId = null;
+      if (file) {
+        const doc = await documentService.uploadDocument(file, file.name);
+        uploadedDocId = doc.id;
+      }
+      const docIds = selectedDocuments
+        .map((d) => parseInt(d.id, 10))
+        .filter((id) => !isNaN(id));
+      if (uploadedDocId) docIds.push(parseInt(String(uploadedDocId)));
+
+      const response = await queryApiService.sendQuery(
+        messageText,
+        docIds,
+        5,
+        currentConvId
+      );
+
+      // Map sources
+      const mappedSources = (response.sources || []).map((s: any) => ({
+        documentId: s.documentId ?? s.document_id ?? String(s.source_id ?? ""),
+        documentTitle:
+          s.documentTitle ?? s.document_title ?? s.title ?? "Tài liệu",
+        pageNumber: s.pageNumber ?? s.page_number,
+        similarityScore: s.similarityScore ?? s.similarity_score,
+      }));
+
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id === aiPlaceholder.id) {
+            return {
+              ...msg,
+              id: `msg-ai-${response.query_id}`,
+              text: response.answer,
+              status: "sent",
+              sources: mappedSources,
+            };
+          }
+          if (msg.id === userMessage.id) return { ...msg, status: "sent" };
+          return msg;
+        })
+      );
+    } catch (error) {
+      console.error("❌ Send message error:", error);
+      setMessages((prev) => prev.filter((m) => m.id !== aiPlaceholder.id));
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === userMessage.id ? { ...m, status: "error" } : m
+        )
+      );
+      alert("Lỗi gửi tin nhắn.");
+    } finally {
+      setIsReplying(false);
+    }
   };
 
   // --- RENDER ---
@@ -242,14 +284,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           <div className="flex-1 px-4 overflow-y-auto custom-scrollbar">
             <MessageList
               messages={messages}
-              isReplying={false} // ⚡ Luôn false vì Loading đã nằm trong messages
-              onEditMessage={() => {}} // Implement edit sau
+              isReplying={false}
+              onEditMessage={() => {}}
             />
           </div>
 
           <ChatInput
             onSendMessage={handleSendMessage}
-            isLoading={isReplying} // Vẫn dùng để disable input
+            isLoading={isReplying}
             selectedDocuments={selectedDocuments}
           />
         </>
