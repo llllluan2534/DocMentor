@@ -1,25 +1,26 @@
+# backend/app/services/document_service.py
+
 from sqlalchemy.orm import Session
-from sqlalchemy import func, String, cast
+from sqlalchemy import desc, asc
 from fastapi import HTTPException, status, UploadFile
 from typing import List, Dict, Optional
-import os
-import shutil
 import logging
-from sqlalchemy import desc, asc, and_
+import time
 from datetime import datetime
 
 from ..models.document import Document
 from ..models.user import User
 from ..schemas.document import DocumentResponse, DocumentStats
-from ..utils.helpers import (
-    validate_file_type, 
-    validate_file_size, 
-    generate_unique_filename,
-    ensure_upload_dir,
-    calculate_file_hash
-)
+from ..utils.helpers import validate_file_type, validate_file_size, generate_unique_filename
+
+# ✅ Import Supabase
+from supabase import create_client, Client
+from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+# ✅ Khởi tạo Client
+supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
 class DocumentService:
     @staticmethod
@@ -29,64 +30,51 @@ class DocumentService:
         user: User,
         title: Optional[str] = None
     ) -> Document:
-        """Upload and save document"""
+        """Upload document to Supabase Storage"""
         
-        # Validate file type
+        # 1. Validate
         file_ext = validate_file_type(file.filename)
-        
-        # Read file to get size
         content = await file.read()
         file_size = len(content)
-        
-        # Validate file size
         validate_file_size(file_size)
         
-        # Generate unique filename
-        unique_filename = generate_unique_filename(user.id, file.filename)
+        # 2. Tạo tên file duy nhất (user_id/filename_timestamp)
+        unique_filename = f"user_{user.id}/{generate_unique_filename(user.id, file.filename)}"
         
-        # Ensure upload directory exists
-        upload_dir = ensure_upload_dir()
-        file_path = os.path.join(upload_dir, unique_filename)
-        
-        # Save file
-        with open(file_path, "wb") as buffer:
-            buffer.write(content)
-        
-        # Calculate file hash
-        file_hash = calculate_file_hash(file_path)
-        
-        # Check for duplicate uploads - handle NULL metadata safely
         try:
-            # Query all user documents and check in Python (safer than JSON query)
-            existing_docs = db.query(Document).filter(
-                Document.user_id == user.id
-            ).all()
+            logger.info(f"⬆️ Uploading to Supabase: {unique_filename}")
             
-            for doc in existing_docs:
-                if doc.metadata_ and doc.metadata_.get("file_hash") == file_hash:
-                    # Remove duplicate file
-                    os.remove(file_path)
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="This file has already been uploaded"
-                    )
-        except HTTPException:
-            # Re-raise HTTPException (duplicate file)
-            raise
+            # 3. Upload lên Bucket
+            supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
+                path=unique_filename,
+                file=content,
+                file_options={"content-type": file.content_type, "x-upsert": "true"}
+            )
+            
+            # 4. Lấy Public URL
+            # Kết quả trả về là URL string trực tiếp
+            public_url = supabase.storage.from_(settings.SUPABASE_BUCKET).get_public_url(unique_filename)
+            
+            logger.info(f"✅ Upload success: {public_url}")
+
         except Exception as e:
-            # Log error but don't block upload if duplicate check fails
-            logger.warning(f"Could not check for duplicate files: {str(e)}")
+            logger.error(f"❌ Supabase Upload Error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+                detail="Lỗi tải file lên Cloud Storage. Vui lòng thử lại."
+            )
         
-        # Create Document record
+        # 5. Lưu vào DB (Lưu URL vào file_path)
         document = Document(
             user_id=user.id,
             title=title or file.filename,
-            file_path=file_path,
-            file_type=file_ext[1:],
+            file_path=public_url, # ⚡ Quan trọng: Lưu URL thay vì đường dẫn cục bộ
+            file_type=file_ext[1:], 
             file_size=file_size,
             metadata_={  
                 "original_filename": file.filename,
-                "file_hash": file_hash,
+                "storage_provider": "supabase",
+                "storage_path": unique_filename, # Lưu path để sau này xóa
                 "mime_type": file.content_type
             },
             processed=False
@@ -172,8 +160,7 @@ class DocumentService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Document not found"
             )
-        
-        return document
+        return document 
     
     @staticmethod
     def update_document(
@@ -242,15 +229,23 @@ class DocumentService:
     
     @staticmethod
     def delete_document(db: Session, document_id: int, user: User) -> bool:
-        """Delete document"""
+        """Delete document from DB and Supabase"""
         document = DocumentService.get_document_by_id(db, document_id, user)
         
-        if os.path.exists(document.file_path):
-            os.remove(document.file_path)
+        # 1. Xóa trên Supabase (nếu có metadata storage_path)
+        try:
+            storage_path = document.metadata_.get("storage_path") if document.metadata_ else None
+            
+            # Fallback: Nếu không có storage_path (file cũ), thử đoán từ URL hoặc bỏ qua
+            if storage_path:
+                logger.info(f"🗑️ Deleting from Supabase: {storage_path}")
+                supabase.storage.from_(settings.SUPABASE_BUCKET).remove([storage_path])
+        except Exception as e:
+            logger.error(f"⚠️ Failed to delete from Supabase (ignoring): {e}")
         
+        # 2. Xóa DB
         db.delete(document)
         db.commit()
-        
         return True
     
     @staticmethod
