@@ -1,8 +1,9 @@
 import os
 import hashlib
+import unicodedata 
+import re
 from datetime import datetime
-from typing import List
-from fastapi import UploadFile, HTTPException, status
+from fastapi import HTTPException, status
 from ..config import settings
 
 def validate_file_type(filename: str) -> str:
@@ -29,13 +30,23 @@ def validate_file_size(file_size: int) -> bool:
     return True
 
 def generate_unique_filename(user_id: int, original_filename: str) -> str:
-    """Generate unique filename to prevent collisions"""
+    """Generate unique filename to prevent collisions & Normalize text"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     name, ext = os.path.splitext(original_filename)
     
-    # Sanitize filename
-    safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-'))
-    safe_name = safe_name.replace(' ', '_')[:50]  # Limit length
+    # ✅ FIX LỖI Ở ĐÂY: Chuyển tiếng Việt có dấu thành không dấu (ASCII)
+    # Ví dụ: "Bài Tập" -> "Bai Tap"
+    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    
+    # Sanitize: Chỉ giữ lại chữ cái, số, gạch dưới, gạch ngang
+    # Thay thế khoảng trắng bằng gạch dưới
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+    
+    # Xóa các gạch dưới dư thừa (vd: ___)
+    safe_name = re.sub(r'_{2,}', '_', safe_name)
+    
+    # Giới hạn độ dài tên file để tránh lỗi hệ thống file
+    safe_name = safe_name[:50]  
     
     return f"{user_id}_{timestamp}_{safe_name}{ext}"
 
