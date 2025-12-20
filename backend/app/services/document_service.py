@@ -5,22 +5,25 @@ from sqlalchemy import desc, asc
 from fastapi import HTTPException, status, UploadFile
 from typing import List, Dict, Optional
 import logging
-import time
 from datetime import datetime
 
 from ..models.document import Document
 from ..models.user import User
-from ..schemas.document import DocumentResponse, DocumentStats
+from ..schemas.document import DocumentResponse, DocumentList, DocumentStats
 from ..utils.helpers import validate_file_type, validate_file_size, generate_unique_filename
 
-# ✅ Import Supabase
+# ✅ 1. Import Supabase
 from supabase import create_client, Client
 from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# ✅ Khởi tạo Client
-supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+# ✅ 2. Initialize Supabase Client (Lazy initialization prevents import crash if env vars are missing during build)
+try:
+    supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+except Exception as e:
+    logger.error(f"Failed to initialize Supabase client: {e}")
+    supabase = None
 
 class DocumentService:
     @staticmethod
@@ -30,29 +33,34 @@ class DocumentService:
         user: User,
         title: Optional[str] = None
     ) -> Document:
-        """Upload document to Supabase Storage"""
+        """Upload and save document to Supabase Storage"""
         
-        # 1. Validate
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Storage service unavailable")
+
+        # Validate file
         file_ext = validate_file_type(file.filename)
         content = await file.read()
         file_size = len(content)
         validate_file_size(file_size)
         
-        # 2. Tạo tên file duy nhất (user_id/filename_timestamp)
+        # Generate unique filename: user_ID/filename_timestamp
         unique_filename = f"user_{user.id}/{generate_unique_filename(user.id, file.filename)}"
         
         try:
             logger.info(f"⬆️ Uploading to Supabase: {unique_filename}")
             
-            # 3. Upload lên Bucket
+            # ✅ 3. Upload to Bucket
+            # Note: 'x-upsert' header might need to be passed differently depending on supabase-py version
+            # Newer versions use the `upsert=True` parameter in the upload method if available, 
+            # or `file_options` as you had.
             supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
                 path=unique_filename,
                 file=content,
                 file_options={"content-type": file.content_type, "x-upsert": "true"}
             )
             
-            # 4. Lấy Public URL
-            # Kết quả trả về là URL string trực tiếp
+            # ✅ 4. Get Public URL
             public_url = supabase.storage.from_(settings.SUPABASE_BUCKET).get_public_url(unique_filename)
             
             logger.info(f"✅ Upload success: {public_url}")
@@ -61,20 +69,20 @@ class DocumentService:
             logger.error(f"❌ Supabase Upload Error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-                detail="Lỗi tải file lên Cloud Storage. Vui lòng thử lại."
+                detail=f"Lỗi upload file lên Cloud: {str(e)}"
             )
         
-        # 5. Lưu vào DB (Lưu URL vào file_path)
+        # ✅ 5. Save to DB (Store URL in file_path)
         document = Document(
             user_id=user.id,
             title=title or file.filename,
-            file_path=public_url, # ⚡ Quan trọng: Lưu URL thay vì đường dẫn cục bộ
-            file_type=file_ext[1:], 
+            file_path=public_url, # Store URL
+            file_type=file_ext[1:],
             file_size=file_size,
             metadata_={  
                 "original_filename": file.filename,
                 "storage_provider": "supabase",
-                "storage_path": unique_filename, # Lưu path để sau này xóa
+                "storage_path": unique_filename, # Store path for deletion
                 "mime_type": file.content_type
             },
             processed=False
@@ -85,7 +93,7 @@ class DocumentService:
         db.refresh(document)
         
         return document
-    
+
     @staticmethod
     def get_user_documents(
         db: Session,
@@ -102,19 +110,15 @@ class DocumentService:
         sort_by: str = "created_at",
         order: str = "desc"
     ) -> List[Document]:
-        """Get documents for a user applying filters, sorting and pagination."""
+        """Get documents for a user applying filters."""
         query = db.query(Document).filter(Document.user_id == user.id)
 
-        # Filters
         if file_types:
-            # normalize lower-case to avoid mismatch
             lower_types = [t.lower() for t in file_types]
             query = query.filter(Document.file_type.in_(lower_types))
 
-        if processed is True:
-            query = query.filter(Document.processed.is_(True))
-        elif processed is False:
-            query = query.filter(Document.processed.is_(False))
+        if processed is not None:
+            query = query.filter(Document.processed.is_(processed))
 
         if date_from:
             query = query.filter(Document.created_at >= date_from)
@@ -131,14 +135,10 @@ class DocumentService:
             if safe:
                 query = query.filter(Document.title.ilike(f"%{safe}%"))
 
-        # Sorting - safe mapping to columns
         sort_col = Document.created_at
-        if sort_by == "updated_at":
-            sort_col = Document.updated_at
-        elif sort_by == "file_size":
-            sort_col = Document.file_size
-        elif sort_by == "title":
-            sort_col = Document.title
+        if sort_by == "updated_at": sort_col = Document.updated_at
+        elif sort_by == "file_size": sort_col = Document.file_size
+        elif sort_by == "title": sort_col = Document.title
 
         if order == "desc":
             query = query.order_by(desc(sort_col))
@@ -146,7 +146,7 @@ class DocumentService:
             query = query.order_by(asc(sort_col))
 
         return query.offset(skip).limit(limit).all()
-    
+
     @staticmethod
     def get_document_by_id(db: Session, document_id: int, user: User) -> Document:
         """Get single document by ID"""
@@ -160,8 +160,8 @@ class DocumentService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Document not found"
             )
-        return document 
-    
+        return document
+
     @staticmethod
     def update_document(
         db: Session,
@@ -170,22 +170,15 @@ class DocumentService:
         title: Optional[str] = None,
         metadata: Optional[Dict] = None
     ) -> Document:
-        """Update document metadata"""
         document = DocumentService.get_document_by_id(db, document_id, user)
-        
-        if title:
-            document.title = title
-        
+        if title: document.title = title
         if metadata:
-            if not document.metadata_:
-                document.metadata_ = {}
+            if not document.metadata_: document.metadata_ = {}
             document.metadata_.update(metadata)
-        
         db.commit()
         db.refresh(document)
-        
         return document
-    
+
     @staticmethod
     def count_user_documents(
         db: Session,
@@ -198,70 +191,45 @@ class DocumentService:
         size_min: Optional[int] = None,
         size_max: Optional[int] = None
     ) -> int:
-        """Return count matching same filters (used for pagination total)."""
         q = db.query(Document).filter(Document.user_id == user.id)
-
-        if file_types:
-            lower_types = [t.lower() for t in file_types]
-            q = q.filter(Document.file_type.in_(lower_types))
-
-        if processed is True:
-            q = q.filter(Document.processed.is_(True))
-        elif processed is False:
-            q = q.filter(Document.processed.is_(False))
-
-        if date_from:
-            q = q.filter(Document.created_at >= date_from)
-        if date_to:
-            q = q.filter(Document.created_at <= date_to)
-
-        if size_min is not None:
-            q = q.filter(Document.file_size >= size_min)
-        if size_max is not None:
-            q = q.filter(Document.file_size <= size_max)
-
-        if search:
-            safe = search.strip()
-            if safe:
-                q = q.filter(Document.title.ilike(f"%{safe}%"))
-
+        if file_types: q = q.filter(Document.file_type.in_([t.lower() for t in file_types]))
+        if processed is not None: q = q.filter(Document.processed.is_(processed))
+        if date_from: q = q.filter(Document.created_at >= date_from)
+        if date_to: q = q.filter(Document.created_at <= date_to)
+        if size_min is not None: q = q.filter(Document.file_size >= size_min)
+        if size_max is not None: q = q.filter(Document.file_size <= size_max)
+        if search and search.strip(): q = q.filter(Document.title.ilike(f"%{search.strip()}%"))
         return q.count()
-    
+
     @staticmethod
     def delete_document(db: Session, document_id: int, user: User) -> bool:
         """Delete document from DB and Supabase"""
         document = DocumentService.get_document_by_id(db, document_id, user)
         
-        # 1. Xóa trên Supabase (nếu có metadata storage_path)
+        # 1. Delete from Supabase
         try:
             storage_path = document.metadata_.get("storage_path") if document.metadata_ else None
             
-            # Fallback: Nếu không có storage_path (file cũ), thử đoán từ URL hoặc bỏ qua
-            if storage_path:
-                logger.info(f"🗑️ Deleting from Supabase: {storage_path}")
+            if storage_path and supabase:
                 supabase.storage.from_(settings.SUPABASE_BUCKET).remove([storage_path])
+                logger.info(f"🗑️ Deleted from Supabase: {storage_path}")
         except Exception as e:
-            logger.error(f"⚠️ Failed to delete from Supabase (ignoring): {e}")
+            logger.error(f"⚠️ Failed to delete from Supabase: {e}")
         
-        # 2. Xóa DB
+        # 2. Delete from DB
         db.delete(document)
         db.commit()
         return True
-    
+
     @staticmethod
     def get_user_stats(db: Session, user: User) -> DocumentStats:
-        """Get document statistics for user"""
         documents = db.query(Document).filter(Document.user_id == user.id).all()
-        
         total_size = sum(doc.file_size for doc in documents)
         by_type = {}
         processed_count = 0
-        
         for doc in documents:
             by_type[doc.file_type] = by_type.get(doc.file_type, 0) + 1
-            
-            if doc.processed:
-                processed_count += 1
+            if doc.processed: processed_count += 1
         
         return DocumentStats(
             total_documents=len(documents),
