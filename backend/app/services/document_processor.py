@@ -4,6 +4,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any
 import fitz  # PyMuPDF
 import logging
+import requests
+import os
+import io
 from ..models.document import Document
 from .embedding_service_gemini import EmbeddingServiceGemini
 # ✅ Setup logging properly
@@ -19,43 +22,64 @@ class DocumentProcessor:
             length_function=len,
             separators=["\n\n", "\n", ". ", " ", ""]
         )
+        
+    # ✅ Helper to get content from URL or Local
+    def _get_file_content(self, file_path: str) -> bytes:
+        """Download file content from URL or read local file"""
+        if file_path.startswith("http"):
+            logger.info(f"🌐 Downloading file from URL: {file_path}")
+            try:
+                # Set a timeout to prevent hanging
+                response = requests.get(file_path, timeout=30) 
+                response.raise_for_status()
+                return response.content
+            except Exception as e:
+                raise Exception(f"Failed to download file from Cloud: {str(e)}")
+        else:
+            # Fallback for old local files
+            if not os.path.exists(file_path):
+                raise Exception(f"File not found on server (Local): {file_path}")
+            with open(file_path, "rb") as f:
+                return f.read()
     
     async def process_document(self, db: Session, document_id: int, file_path: str):
-        """Main processing pipeline for documents"""
         try:
-            logger.info(f"🔄 START Processing document {document_id}: {file_path}")
-            
-            # Get document from DB
+            logger.info(f"🔄 START Processing document {document_id}")
             document = db.query(Document).filter(Document.id == document_id).first()
-            if not document:
-                logger.error(f"❌ Document {document_id} not found in database")
+            if not document: 
                 raise Exception(f"Document {document_id} not found")
-            
-            logger.info(f"✅ Document found: {document.title}")
-            
+
             # Step 1: Extract text
             logger.info("📄 Step 1: Extracting text...")
-            if file_path.endswith('.pdf'):
+            
+            # Logic to determine file extension
+            file_ext = ""
+            if "." in file_path:
+                # Handle URLs with query params
+                clean_path = file_path.split("?")[0]
+                file_ext = clean_path.split(".")[-1].lower()
+            elif document.file_type:
+                file_ext = document.file_type.lower()
+
+            if file_ext == 'pdf' or document.file_type == 'pdf':
                 text = self.extract_pdf(file_path)
-            elif file_path.endswith('.docx'):
+            elif file_ext == 'docx' or document.file_type == 'docx':
                 text = self.extract_docx(file_path)
-            elif file_path.endswith('.txt'):
+            elif file_ext == 'txt' or document.file_type == 'txt':
                 text = self.extract_txt(file_path)
             else:
-                raise Exception(f"Unsupported file type: {file_path}")
+                raise Exception(f"Unsupported file type: {file_ext}")
             
             if not text or len(text.strip()) < 100:
-                raise Exception(f"Document is empty or too short: {len(text)} chars")
+                raise Exception(f"Document is empty or too short: {len(text) if text else 0} chars")
             
             logger.info(f"✅ Extracted {len(text)} characters")
             
             # Step 2: Split into chunks
             logger.info("✂️ Step 2: Splitting into chunks...")
             text_chunks = self.text_splitter.split_text(text)
-            logger.info(f"✅ Created {len(text_chunks)} chunks")
             
-            # Step 3: Prepare chunks with metadata
-            logger.info("📦 Step 3: Preparing chunks with metadata...")
+            # Step 3: Prepare metadata
             chunks_with_metadata = []
             for idx, chunk_text in enumerate(text_chunks):
                 chunks_with_metadata.append({
@@ -67,113 +91,79 @@ class DocumentProcessor:
                         'title': document.title
                     }
                 })
-            logger.info(f"✅ Prepared {len(chunks_with_metadata)} chunks")
             
-            # Step 4: Create embeddings and store in vector DB
-            logger.info("🔮 Step 4: Creating embeddings and storing in vector database...")
+            # Step 4: Embed & Store
+            logger.info("🔮 Step 4: Creating embeddings...")
             await self.embedding_service.store_chunks(
                 document_id=document_id,
                 chunks=chunks_with_metadata
             )
-            logger.info(f"✅ Embeddings stored in Pinecone")
             
-            # Step 5: Update document status
-            logger.info("💾 Step 5: Updating document status...")
+            # Step 5: Update DB
             existing_metadata = document.metadata_ or {}
-            
-            new_metadata = {
-                **existing_metadata,  # Keep existing data (file_hash, mime_type, etc.)
+            document.metadata_ = {
+                **existing_metadata,
                 'total_chunks': len(text_chunks),
                 'total_characters': len(text),
                 'processing_status': 'completed'
             }
-
-            # Assign back to document
-            document.metadata_ = new_metadata
             document.processed = True
-            
             db.commit()
-            db.refresh(document)
-            
             logger.info(f"✅ Successfully processed document {document_id}")
-            logger.info(f"📊 Stats: {len(text_chunks)} chunks, {len(text)} characters")
             return True
             
         except Exception as e:
             logger.error(f"❌ Error processing document {document_id}: {str(e)}")
-            logger.exception(e)
-            
             try:
+                # Update status to failed
                 document = db.query(Document).filter(Document.id == document_id).first()
                 if document:
-                    # ✅ Properly merge metadata
-                    existing_metadata = document.metadata_ or {}
-                    document.metadata_ = {
-                        **existing_metadata,
-                        'processing_status': 'failed',
-                        'error': str(e)
-                    }
-                    document.processed = False
+                    meta = document.metadata_ or {}
+                    document.metadata_ = {**meta, 'processing_status': 'failed', 'error': str(e)}
                     db.commit()
-                    logger.info(f"📝 Updated document status to failed")
-            except Exception as db_error:
-                logger.error(f"❌ Failed to update document status: {str(db_error)}")
-            
+            except:
+                pass
             raise
     
+    # ✅ Updated Extract Methods using _get_file_content
     def extract_pdf(self, file_path: str) -> str:
-        """Extract text using PyMuPDF (10x faster than pdfplumber)"""
         text = ""
         try:
-            logger.info(f"📖 Opening PDF with PyMuPDF: {file_path}")
-            with fitz.open(file_path) as doc:
-                logger.info(f"📄 PDF has {len(doc)} pages")
+            file_bytes = self._get_file_content(file_path)
+            with fitz.open(stream=file_bytes, filetype="pdf") as doc:
                 for i, page in enumerate(doc):
                     page_text = page.get_text("text")
                     if page_text:
                         text += f"\n[Page {i + 1}]\n{page_text}"
-            
-            logger.info(f"✅ PDF extraction complete: {len(text)} chars")
             return text.strip()
         except Exception as e:
             logger.error(f"❌ Error extracting PDF: {str(e)}")
             raise
-    
+
     def extract_docx(self, file_path: str) -> str:
-        """Extract text from DOCX file"""
         try:
-            logger.info(f"📖 Opening DOCX: {file_path}")
-            doc = DocxDocument(file_path)
-            text = "\n".join([paragraph.text for paragraph in doc.paragraphs if paragraph.text])
-            logger.info(f"✅ DOCX extraction complete: {len(text)} characters")
+            file_bytes = self._get_file_content(file_path)
+            file_stream = io.BytesIO(file_bytes)
+            doc = DocxDocument(file_stream)
+            text = "\n".join([p.text for p in doc.paragraphs if p.text])
             return text.strip()
         except Exception as e:
             logger.error(f"❌ Error extracting DOCX: {str(e)}")
             raise
-    
+
     def extract_txt(self, file_path: str) -> str:
-        """Extract text from TXT file"""
         try:
-            logger.info(f"📖 Opening TXT: {file_path}")
-            with open(file_path, 'r', encoding='utf-8') as file:
-                text = file.read().strip()
-            logger.info(f"✅ TXT extraction complete: {len(text)} characters")
-            return text
-        except UnicodeDecodeError:
-            logger.warning("⚠️ UTF-8 failed, trying latin-1...")
-            with open(file_path, 'r', encoding='latin-1') as file:
-                text = file.read().strip()
-            logger.info(f"✅ TXT extraction complete (latin-1): {len(text)} characters")
-            return text
+            file_bytes = self._get_file_content(file_path)
+            try:
+                return file_bytes.decode('utf-8').strip()
+            except:
+                return file_bytes.decode('latin-1').strip()
         except Exception as e:
             logger.error(f"❌ Error extracting TXT: {str(e)}")
             raise
         
     def _extract_page_number_from_text(self, chunk_text: str) -> int:
-        """Extract page number from [Page X] marker in text"""
         import re
-        
         match = re.search(r'\[Page (\d+)\]', chunk_text)
-        if match:
-            return int(match.group(1))
+        if match: return int(match.group(1))
         return 0

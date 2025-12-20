@@ -1,11 +1,11 @@
 import mimetypes
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query, BackgroundTasks
-from fastapi.responses import FileResponse  # <--- Quan trọng để trả về file
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
-
 import logging
-import os # <--- Cần thiết để kiểm tra file path
+import os
+import mimetypes
 
 from ..database import get_db, SessionLocal
 from ..schemas.document import (
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 # --- Background Task ---
 async def process_document_background(doc_id: int, file_path: str):
-    db = SessionLocal() # ⚠️ Phải tạo DB Session mới
+    db = SessionLocal() 
     try:
         processor = DocumentProcessor()
         await processor.process_document(db, doc_id, file_path)
@@ -69,39 +69,30 @@ def download_document(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Download hoặc Xem tài liệu.
-    Chế độ: INLINE (Xem trên trình duyệt) thay vì ATTACHMENT (Tải về).
+    Redirect to Supabase URL for viewing/downloading.
+    Fallback to local file if path is not a URL.
     """
-    # 1. Lấy thông tin document từ DB
     doc = DocumentService.get_document_by_id(db, document_id, current_user)
     
-    # 2. Kiểm tra file vật lý
-    if not doc.file_path or not os.path.exists(doc.file_path):
-        logger.error(f"File not found on disk: {doc.file_path}")
-        raise HTTPException(status_code=404, detail="File content not found on server")
-
-    # 3. Xác định MIME Type chuẩn để trình duyệt hiểu cách hiển thị
-    media_type = "application/octet-stream" # Mặc định (sẽ tải về)
-    
-    if doc.file_type:
-        ftype = doc.file_type.lower().replace(".", "")
-        if ftype == "pdf":
-            media_type = "application/pdf"
-        elif ftype in ["png", "jpg", "jpeg", "webp", "gif"]:
-            media_type = f"image/{ftype}"
-        elif ftype in ["txt", "log", "md"]:
-            media_type = "text/plain"
-
-    # 4. Trả về FileResponse với disposition='inline'
-    return FileResponse(
-        path=doc.file_path,
-        filename=doc.title,
-        media_type=media_type,
-        content_disposition_type="inline" # <--- CHÌA KHÓA: inline để xem, attachment để tải
+    # 1. If it's a Supabase URL, redirect
+    if doc.file_path.startswith("http"):
+        return RedirectResponse(url=doc.file_path)
+        
+    # 2. Fallback for old local files (Render Ephemeral disk)
+    if os.path.exists(doc.file_path):
+        mime_type, _ = mimetypes.guess_type(doc.file_path)
+        return FileResponse(
+            doc.file_path, 
+            media_type=mime_type or "application/octet-stream", 
+            filename=doc.title
+        )
+        
+    # 3. File lost
+    raise HTTPException(
+        status_code=404, 
+        detail="File not found on server. Please re-upload this document."
     )
-# -------------------------------------------------------------
 
-# --- List Documents (Giữ nguyên) ---
 @router.get("/", response_model=DocumentList)
 def get_documents(
     skip: int = Query(0, ge=0),
