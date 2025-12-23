@@ -19,7 +19,6 @@ interface DocumentCardProps {
   // ✅ Added onView prop
   onView: (id: string) => void;
   isSelected: boolean;
-  onSelectionChange: (id: string) => void;
   editingId?: string | null;
   editingTitle?: string;
   onStartEdit?: (doc: Document) => void;
@@ -55,7 +54,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
   onDelete,
   onView, // ✅
   isSelected,
-  onSelectionChange,
+  
   editingId,
   editingTitle,
   onStartEdit,
@@ -75,7 +74,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
   };
 
   // ✅ New handler for card click
-  const handleCardClick = (e: React.MouseEvent) => {
+  const handleCardClick = () => {
     if (!isEditing) {
       onView(String(id));
     }

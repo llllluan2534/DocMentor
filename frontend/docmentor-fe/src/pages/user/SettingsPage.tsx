@@ -2,7 +2,6 @@ import React, { ReactNode, useState } from "react";
 import Button from "@/components/common/Button";
 import {
   Palette,
-  Globe,
   Lock,
   Trash2,
   Database,

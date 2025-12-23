@@ -82,7 +82,6 @@ export const DocumentList: React.FC<DocumentListProps> = ({
               onDelete={onDelete}
               onView={onView}
               isSelected={false}
-              onSelectionChange={() => {}}
               editingId={editingId}
               editingTitle={editingTitle}
               onStartEdit={onStartEdit}

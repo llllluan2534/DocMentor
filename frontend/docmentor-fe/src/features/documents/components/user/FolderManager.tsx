@@ -47,12 +47,6 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
     }
   };
 
-  const folderColors: Record<string, string> = {
-    default: "from-blue-500/20 to-blue-600/20 border-blue-500/30",
-    work: "from-purple-500/20 to-purple-600/20 border-purple-500/30",
-    personal: "from-green-500/20 to-green-600/20 border-green-500/30",
-    archive: "from-gray-500/20 to-gray-600/20 border-gray-500/30",
-  };
 
   return (
     <div className="w-full">

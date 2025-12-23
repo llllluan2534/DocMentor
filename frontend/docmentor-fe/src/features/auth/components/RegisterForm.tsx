@@ -448,17 +448,3 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
 };
 
 export default RegisterForm;
-
-// ✨ Type definitions for Google Sign-In
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (config: any) => void;
-          prompt: () => void;
-        };
-      };
-    };
-  }
-}

@@ -38,7 +38,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<"context" | "library">("context");
   const [libraryDocs, setLibraryDocs] = useState<Document[]>([]);
-  const [isLoadingLibrary, setIsLoadingLibrary] = useState(false);
+  const [, setIsLoadingLibrary] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
   // --- STATE CHO AI ANALYSIS ---

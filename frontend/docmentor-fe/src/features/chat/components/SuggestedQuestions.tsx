@@ -5,13 +5,11 @@ import { MessageSquare, Sparkles, Zap, Brain } from "lucide-react";
 interface SuggestedQueriesProps {
   queries: string[];
   onQueryClick: (query: string) => void;
-  isLoading: boolean;
 }
 
 export const SuggestedQueries: React.FC<SuggestedQueriesProps> = ({
   queries,
   onQueryClick,
-  isLoading,
 }) => {
   // Icons để làm đẹp các suggested queries
   const icons = [Sparkles, Zap, Brain, MessageSquare];

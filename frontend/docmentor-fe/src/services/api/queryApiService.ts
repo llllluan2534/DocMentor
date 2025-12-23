@@ -1,6 +1,5 @@
 // src/services/api/queryApiService.ts - Real API Service with Axios
 
-import axios, { AxiosInstance, AxiosError } from "axios";
 import apiClient from "./apiClient";
 
 // ============================================================
@@ -15,11 +14,6 @@ interface SourceSchema {
   text?: string;
 }
 
-interface QueryRequest {
-  query_text: string;
-  document_ids: number[];
-  max_results?: number;
-}
 
 interface QueryResponse {
   query_id: number | null;
@@ -42,12 +36,6 @@ interface QueryFeedbackCreate {
   feedback_text?: string;
 }
 
-interface QueryFeedbackResponse {
-  rating: number;
-  text?: string;
-  created_at: string;
-  user_id: number;
-}
 
 interface QueryStatsResponse {
   total_queries: number;
@@ -65,11 +53,7 @@ interface HistoryParams {
   order?: "asc" | "desc";
 }
 
-interface ApiError {
-  status: number;
-  message: string;
-  detail?: string;
-}
+
 
 // ============================================================
 // AXIOS INSTANCE SETUP

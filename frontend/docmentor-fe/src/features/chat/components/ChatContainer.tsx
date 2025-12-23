@@ -6,7 +6,6 @@ import { queryApiService } from "@/services/api/queryApiService";
 import { documentService } from "@/services/document/documentService";
 import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
-import { useAuth } from "@/app/providers/AuthProvider";
 import HeroChat from "@/features/chat/components/HeroChat";
 
 interface ChatContainerProps {
@@ -30,7 +29,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   sessionId: propSessionId,
   onNewConversation,
   selectedDocuments = [],
-  onOpenDocumentModal,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -39,7 +37,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
 
   const sessionId = propSessionId || searchParams.get("sessionId");
   const contextId = conversationId || sessionId;
