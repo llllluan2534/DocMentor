@@ -82,7 +82,6 @@ export const DocumentGrid: React.FC<DocumentGridProps> = ({
               onDelete={onDelete}
               onView={onView}
               isSelected={false}
-              onSelectionChange={() => {}}
               editingId={editingId}
               editingTitle={editingTitle}
               onStartEdit={onStartEdit}

@@ -3,7 +3,7 @@ import {
   dashboardService,
   ProcessingStatusData,
 } from "@/services/dashboard/dashboardService";
-import { FiLoader, FiAlertCircle, FiClock, FiFileText } from "react-icons/fi";
+import { FiLoader, FiAlertCircle } from "react-icons/fi";
 
 export const ProcessingStatus: React.FC = () => {
   const [data, setData] = useState<ProcessingStatusData>({

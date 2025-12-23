@@ -46,8 +46,6 @@ apiClient.interceptors.response.use(
     return response;
   },
   async (error: AxiosError) => {
-    const originalRequest = error.config;
-
     // Nếu lỗi là 401 (Unauthorized) và không phải đang ở trang login
     if (
       error.response?.status === 401 &&

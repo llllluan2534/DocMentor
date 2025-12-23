@@ -1,11 +1,5 @@
 import React, { useState } from "react";
-import {
-  FiX,
-  FiArrowRight,
-  FiCheckCircle,
-  FiAlertCircle,
-  FiRefreshCw,
-} from "react-icons/fi";
+import { FiX, FiArrowRight } from "react-icons/fi";
 import { QuizQuestion } from "@/services/analysis/analysisService";
 
 interface QuizViewerProps {
