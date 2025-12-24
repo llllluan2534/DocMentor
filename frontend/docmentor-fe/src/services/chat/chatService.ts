@@ -30,26 +30,44 @@ const convertToChatMessages = (queries: any[]): ChatMessage[] => {
 
     // 2. AI message (SỬA ĐOẠN NÀY)
     if (query.response_text) {
-      // 🔥 FIX: Map thủ công từ snake_case (Backend) sang camelCase (Frontend)
-      const mappedSources =
-        query.sources?.map((src: any) => ({
-          documentId: src.document_id?.toString(), // Backend: document_id
-          documentTitle: src.document_title || "Tài liệu", // Backend: document_title
-          pageNumber: src.page_number, // Backend: page_number
-          similarityScore: src.similarity_score, // Backend: similarity_score
-        })) || [];
+      // 🔥 FIX QUAN TRỌNG: Xử lý sources dù nó là String hay Array
+      let parsedSources = [];
+      try {
+        if (typeof query.sources === "string") {
+          // Trường hợp 1: Database trả về chuỗi JSON (khi reload trang)
+          parsedSources = JSON.parse(query.sources);
+        } else if (Array.isArray(query.sources)) {
+          // Trường hợp 2: API trả về mảng object (khi vừa chat xong)
+          parsedSources = query.sources;
+        }
+      } catch (error) {
+        console.error("❌ Lỗi parse sources:", error, query.sources);
+        parsedSources = [];
+      }
+
+      // Map thủ công từ snake_case (Backend) sang camelCase (Frontend)
+      const mappedSources = parsedSources.map((src: any) => ({
+        documentId: src.document_id?.toString(),
+        documentTitle: src.document_title || "Tài liệu",
+        pageNumber: src.page_number,
+        // Backend có thể trả về 'score' hoặc 'similarity_score' tùy endpoint
+        similarityScore: src.score || src.similarity_score,
+      }));
 
       messages.push({
         id: `msg-ai-${query.id}`,
         text: query.response_text,
         sender: "ai",
         timestamp: query.created_at,
-        sources: mappedSources, // ✅ Gán biến đã map
+        sources: mappedSources, // ✅ Gán biến đã xử lý kỹ
       });
     }
   });
 
-  return messages;
+  // Sắp xếp lại theo thời gian để đảm bảo tin nhắn hiển thị đúng thứ tự
+  return messages.sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
 };
 
 // ============================================================
@@ -60,7 +78,6 @@ export const chatService = {
   // ✅ 1. Lấy danh sách hội thoại
   getConversations: async (): Promise<Conversation[]> => {
     try {
-      // Gọi qua apiClient chung
       const response = await apiClient.get("/conversations/", {
         params: { skip: 0, limit: 100 },
       });
@@ -69,7 +86,7 @@ export const chatService = {
         id: conv.id.toString(),
         title: conv.title,
         createdAt: conv.created_at,
-        updatedAt: conv.updated_at, // Quan trọng cho việc sort
+        updatedAt: conv.updated_at,
         isPinned: conv.is_pinned || false,
         documentCount: conv.document_count || 0,
       }));
@@ -85,6 +102,8 @@ export const chatService = {
 
     try {
       const response = await apiClient.get(`/conversations/${conversationId}`);
+      // Log kiểm tra dữ liệu trả về (bạn có thể tắt đi sau khi fix xong)
+      // console.log("📥 Raw History Data:", response.data);
       return convertToChatMessages(response.data.queries || []);
     } catch (error) {
       console.error("Get history error", error);
@@ -142,9 +161,8 @@ export const chatService = {
     await apiClient.delete(`/conversations/${id}`);
   },
 
-  // ✅ 7. Guest Session (Vẫn dùng query API)
+  // ✅ 7. Guest Session
   startGuestSession: async (payload: { message: string; file?: File }) => {
-    // Logic guest cũ
     const response = await queryApiService.sendQuery(payload.message, [], 5);
     return { sessionId: response.query_id?.toString() || "" };
   },
