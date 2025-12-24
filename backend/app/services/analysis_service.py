@@ -1,139 +1,147 @@
-import os
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from datetime import datetime
-from ..database import get_db
-from ..schemas.analysis import (
-    SummaryRequest,
-    SummaryResponse,
-    ConceptsRequest,
-    ConceptsResponse,
-    QuizRequest,
-    QuizResponse
-)
-from ..services.analysis_service import AnalysisService
-# Giả sử bạn đã có ExportService, nếu chưa thì cần tạo dummy
-from ..services.export_service import ExportService 
-from ..utils.security import get_current_user
+from typing import List, Dict, Any
+import logging
+import httpx # ✅ Cần import thư viện này
+import io
+from fastapi import HTTPException, status
+
+from ..models.document import Document
 from ..models.user import User
+from ..services.gemini_service import GeminiService
+from ..services.document_processor import DocumentProcessor
 
-router = APIRouter(prefix="/analysis", tags=["Document Analysis"])
-analysis_service = AnalysisService() # Init service 1 lần
+logger = logging.getLogger(__name__)
 
-@router.post("/summary", response_model=SummaryResponse)
-async def generate_summary(
-    request: SummaryRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Generate document summary"""
-    result = await analysis_service.generate_summary(
-        db=db,
-        user=current_user,
-        document_id=request.document_id,
-        length=request.length
-    )
-    # Merge result with created_at if needed, or rely on schema default
-    return {**result, 'created_at': datetime.utcnow()}
-
-@router.post("/concepts", response_model=ConceptsResponse)
-async def extract_concepts(
-    request: ConceptsRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Extract key concepts"""
-    return await analysis_service.extract_concepts(
-        db=db,
-        user=current_user,
-        document_id=request.document_id,
-        max_concepts=request.max_concepts
-    )
-
-@router.post("/quiz", response_model=QuizResponse)
-async def generate_quiz(
-    request: QuizRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Generate quiz"""
-    return await analysis_service.generate_quiz(
-        db=db,
-        user=current_user,
-        document_id=request.document_id,
-        num_questions=request.num_questions,
-        difficulty=request.difficulty
-    )
-
-# --- EXPORT FEATURES ---
-
-@router.post("/summary/export/pdf")
-async def export_summary_pdf(
-    request: SummaryRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Generate summary and export to PDF"""
-    # 1. Tạo nội dung tóm tắt
-    result = await analysis_service.generate_summary(
-        db=db,
-        user=current_user,
-        document_id=request.document_id,
-        length=request.length
-    )
+class AnalysisService:
+    """Service for document analysis features"""
     
-    # 2. Xuất ra file PDF
-    export_service = ExportService()
-    pdf_path = export_service.export_summary_to_pdf(
-        document_title=result['document_title'],
-        summary=result['summary'],
-        metadata={
-            'length': result['length'],
-            'word_count': result['word_count']
-        }
-    )
+    def __init__(self):
+        self.gemini_service = GeminiService()
+        self.doc_processor = DocumentProcessor()
     
-    # 3. Trả về file
-    filename = os.path.basename(pdf_path)
-    return FileResponse(
-        path=pdf_path,
-        media_type='application/pdf',
-        filename=filename,
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+    # ✅ Helper function để tải file từ URL
+    async def _download_file(self, file_path: str) -> bytes:
+        if file_path.startswith("http"):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(file_path, timeout=30.0)
+                    response.raise_for_status()
+                    return response.content
+            except Exception as e:
+                logger.error(f"❌ Failed to download file for analysis: {e}")
+                raise HTTPException(status_code=400, detail="Could not download file content")
+        else:
+            # Fallback cho file local cũ (nếu có)
+            with open(file_path, "rb") as f:
+                return f.read()
 
-@router.post("/quiz/export/pdf")
-async def export_quiz_pdf(
-    request: QuizRequest,
-    include_answers: bool = False,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Generate quiz and export to PDF"""
-    # 1. Tạo nội dung Quiz
-    result = await analysis_service.generate_quiz(
-        db=db,
-        user=current_user,
-        document_id=request.document_id,
-        num_questions=request.num_questions,
-        difficulty=request.difficulty
-    )
+    async def generate_summary(
+        self,
+        db: Session,
+        user: User,
+        document_id: int,
+        length: str = "medium"
+    ) -> Dict[str, Any]:
+        """Generate document summary"""
+        try:
+            # Get document
+            document = db.query(Document).filter(
+                Document.id == document_id,
+                Document.user_id == user.id
+            ).first()
+            
+            if not document:
+                raise HTTPException(status_code=404, detail="Document not found")
+            
+            # ✅ Bước 1: Tải file bytes về
+            logger.info(f"⬇️ Downloading content for analysis: {document.title}")
+            file_bytes = await self._download_file(document.file_path)
+            
+            # ✅ Bước 2: Extract text từ bytes (Thay vì truyền path)
+            logger.info(f"📄 Extracting text...")
+            text = ""
+            file_ext = document.file_type.lower()
+
+            if 'pdf' in file_ext:
+                text = self.doc_processor.extract_pdf(file_bytes)
+            elif 'docx' in file_ext or 'doc' in file_ext:
+                text = self.doc_processor.extract_docx(file_bytes)
+            elif 'txt' in file_ext:
+                text = self.doc_processor.extract_txt(file_bytes)
+            else:
+                # Thử fallback PDF nếu không nhận diện được
+                try:
+                    text = self.doc_processor.extract_pdf(file_bytes)
+                except:
+                    raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}")
+            
+            if len(text) < 50:
+                raise HTTPException(status_code=400, detail="Document content is too short/empty")
+            
+            # ✅ Bước 3: Gọi Gemini
+            logger.info(f"🤖 Generating {length} summary...")
+            summary = await self.gemini_service.generate_summary(text[:30000], length) # Giới hạn 30k ký tự để tránh lỗi token
+            
+            return {
+                'document_id': document.id,
+                'document_title': document.title,
+                'summary': summary,
+                'length': length,
+                'word_count': len(summary.split())
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ Error generating summary: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
     
-    # 2. Xuất ra file PDF
-    export_service = ExportService()
-    pdf_path = export_service.export_quiz_to_pdf(
-        document_title=result['document_title'],
-        questions=result['questions'],
-        difficulty=result['difficulty'],
-        include_answers=include_answers
-    )
-    
-    # 3. Trả về file
-    filename = os.path.basename(pdf_path)
-    return FileResponse(
-        path=pdf_path,
-        media_type='application/pdf',
-        filename=filename,
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+    async def generate_quiz(
+        self,
+        db: Session,
+        user: User,
+        document_id: int,
+        num_questions: int = 5,
+        difficulty: str = "medium"
+    ) -> Dict[str, Any]:
+        """Generate quiz from document"""
+        try:
+            document = db.query(Document).filter(
+                Document.id == document_id,
+                Document.user_id == user.id
+            ).first()
+            
+            if not document:
+                raise HTTPException(status_code=404, detail="Document not found")
+            
+            # ✅ Bước 1: Tải file
+            file_bytes = await self._download_file(document.file_path)
+            
+            # ✅ Bước 2: Extract
+            text = ""
+            file_ext = document.file_type.lower()
+            
+            if 'pdf' in file_ext:
+                text = self.doc_processor.extract_pdf(file_bytes)
+            elif 'docx' in file_ext:
+                text = self.doc_processor.extract_docx(file_bytes)
+            elif 'txt' in file_ext:
+                text = self.doc_processor.extract_txt(file_bytes)
+            else:
+                 try: text = self.doc_processor.extract_pdf(file_bytes)
+                 except: raise HTTPException(status_code=400, detail="Unsupported file type")
+            
+            # ✅ Bước 3: Generate Quiz
+            logger.info(f"📝 Generating quiz...")
+            # Giới hạn context window cho Quiz
+            questions = await self.gemini_service.generate_quiz(
+                text[:25000], 
+                num_questions, 
+                difficulty
+            )
+            
+            return questions # Gemini Service trả về list dict rồi
+            
+        except Exception as e:
+            logger.error(f"❌ Error generating quiz: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Quiz generation failed: {str(e)}")
