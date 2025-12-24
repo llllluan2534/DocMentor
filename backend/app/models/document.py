@@ -4,6 +4,7 @@ from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Bool
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
+from .folder import Folder
 
 # ==========================================================
 # BẢNG TRUNG GIAN (QUERY <-> DOCUMENT)
@@ -34,8 +35,11 @@ class Document(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    folder_id = Column(Integer, ForeignKey("folders.id", ondelete="SET NULL"), nullable=True)
+    
     # Relationships
     owner = relationship("User", back_populates="documents")
+    folder = relationship("Folder", back_populates="documents")
     
     # Quan hệ với Conversation 
     conversations = relationship(

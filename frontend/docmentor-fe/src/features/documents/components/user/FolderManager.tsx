@@ -47,12 +47,11 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
     }
   };
 
-
   return (
     <div className="w-full">
       {/* Folder Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
+        <h2 className="flex items-center gap-2 text-lg font-bold text-white">
           <FiFolder className="w-5 h-5 text-primary" />
           Thư mục tài liệu
         </h2>
@@ -69,7 +68,7 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
 
       {/* Create Folder Input */}
       {isCreating && (
-        <div className="mb-4 p-3 bg-accent/60 border border-primary/30 rounded-lg flex gap-2">
+        <div className="flex gap-2 p-3 mb-4 border rounded-lg bg-accent/60 border-primary/30">
           <input
             autoFocus
             type="text"
@@ -83,11 +82,11 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
               }
             }}
             placeholder="Nhập tên thư mục..."
-            className="flex-1 px-3 py-2 rounded-lg bg-background border border-primary/50 text-white focus:outline-none focus:border-primary text-sm"
+            className="flex-1 px-3 py-2 text-sm text-white border rounded-lg bg-background border-primary/50 focus:outline-none focus:border-primary"
           />
           <button
             onClick={handleCreateFolder}
-            className="p-2 rounded-lg bg-gradient-to-r from-primary to-secondary text-white hover:shadow-lg"
+            className="p-2 text-white rounded-lg bg-gradient-to-r from-primary to-secondary hover:shadow-lg"
             title="Tạo"
           >
             <FiCheck className="w-4 h-4" />
@@ -97,7 +96,7 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
               setIsCreating(false);
               setNewFolderName("");
             }}
-            className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30"
+            className="p-2 text-red-400 rounded-lg bg-red-500/20 hover:bg-red-500/30"
             title="Hủy"
           >
             <FiX className="w-4 h-4" />
@@ -106,7 +105,7 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
       )}
 
       {/* Folders List */}
-      <div className="space-y-2 max-h-96 overflow-y-auto">
+      <div className="space-y-2 overflow-y-auto max-h-96">
         {/* All Documents Button */}
         <button
           onClick={() => onSelectFolder(null)}
@@ -115,11 +114,19 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
               ? "bg-gradient-to-r from-primary to-secondary text-white shadow-lg shadow-primary/30"
               : "bg-accent/40 border border-primary/20 text-white hover:bg-accent/60 hover:border-primary/30"
           }`}
-        ></button>
+        >
+          {/* Thêm Icon và Text vào bên trong button */}
+          <div className="flex items-center flex-1 gap-3">
+            <FiFolder
+              className={`w-5 h-5 ${selectedFolderId === null ? "text-white" : "text-primary"}`}
+            />
+            <span>Tất cả tài liệu</span>
+          </div>
+        </button>
 
         {/* Folder Items */}
         {folders.length === 0 ? (
-          <p className="text-sm text-text-muted px-4 py-3 text-center">
+          <p className="px-4 py-3 text-sm text-center text-text-muted">
             Chưa có thư mục nào
           </p>
         ) : (
@@ -134,9 +141,9 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
             >
               <button
                 onClick={() => onSelectFolder(folder.id)}
-                className="flex-1 flex items-center gap-3 min-w-0"
+                className="flex items-center flex-1 min-w-0 gap-3"
               >
-                <FiFolder className="w-5 h-5 flex-shrink-0" />
+                <FiFolder className="flex-shrink-0 w-5 h-5" />
                 <div className="min-w-0">
                   {editingId === folder.id ? (
                     <input
@@ -154,7 +161,7 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
                           setEditingName("");
                         }
                       }}
-                      className="w-full px-2 py-1 rounded bg-background border border-primary/50 text-white focus:outline-none focus:border-primary text-sm"
+                      className="w-full px-2 py-1 text-sm text-white border rounded bg-background border-primary/50 focus:outline-none focus:border-primary"
                       placeholder="Tên thư mục..."
                     />
                   ) : (
@@ -174,7 +181,7 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
 
               {/* Actions */}
               {editingId === folder.id ? (
-                <div className="flex gap-1 flex-shrink-0">
+                <div className="flex flex-shrink-0 gap-1">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -198,7 +205,7 @@ export const FolderManager: React.FC<FolderManagerProps> = ({
                   </button>
                 </div>
               ) : (
-                <div className="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex flex-shrink-0 gap-1 transition-opacity opacity-0 group-hover:opacity-100">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
