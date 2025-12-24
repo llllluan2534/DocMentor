@@ -12,14 +12,13 @@ const convertToChatMessages = (queries: any[]): ChatMessage[] => {
   const messages: ChatMessage[] = [];
 
   queries.forEach((query) => {
-    // User message
-    // 1. ✅ KHAI BÁO BIẾN Ở ĐÂY (Map dữ liệu từ backend)
-    // Giả sử backend trả về field 'documents' là mảng các file
+    // 1. User message (Giữ nguyên)
     const attachedDocs =
       query.documents?.map((doc: any) => ({
         id: doc.id.toString(),
         title: doc.title,
       })) || [];
+
     messages.push({
       id: `msg-user-${query.id}`,
       text: query.query_text,
@@ -29,14 +28,23 @@ const convertToChatMessages = (queries: any[]): ChatMessage[] => {
       attachedDocuments: attachedDocs.length > 0 ? attachedDocs : undefined,
     });
 
-    // AI message
+    // 2. AI message (SỬA ĐOẠN NÀY)
     if (query.response_text) {
+      // 🔥 FIX: Map thủ công từ snake_case (Backend) sang camelCase (Frontend)
+      const mappedSources =
+        query.sources?.map((src: any) => ({
+          documentId: src.document_id?.toString(), // Backend: document_id
+          documentTitle: src.document_title || "Tài liệu", // Backend: document_title
+          pageNumber: src.page_number, // Backend: page_number
+          similarityScore: src.similarity_score, // Backend: similarity_score
+        })) || [];
+
       messages.push({
         id: `msg-ai-${query.id}`,
         text: query.response_text,
         sender: "ai",
         timestamp: query.created_at,
-        sources: query.sources,
+        sources: mappedSources, // ✅ Gán biến đã map
       });
     }
   });

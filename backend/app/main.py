@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 from .config import settings
-from .routers import auth, documents, query, analysis, analytics, conversations, guest, user_dashboard
+from .routers import auth, documents, query, analysis, analytics, conversations, guest, user_dashboard, folders
 import os
 import logging
 
@@ -71,6 +71,7 @@ app.include_router(analytics.router)
 app.include_router(conversations.router)
 app.include_router(guest.router)
 app.include_router(user_dashboard.router)
+app.include_router(folders.router)
 
 @app.get("/")
 def read_root():

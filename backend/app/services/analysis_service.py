@@ -1,206 +1,139 @@
+import os
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
-import logging
-from ..models.document import Document
+from datetime import datetime
+from ..database import get_db
+from ..schemas.analysis import (
+    SummaryRequest,
+    SummaryResponse,
+    ConceptsRequest,
+    ConceptsResponse,
+    QuizRequest,
+    QuizResponse
+)
+from ..services.analysis_service import AnalysisService
+# Giả sử bạn đã có ExportService, nếu chưa thì cần tạo dummy
+from ..services.export_service import ExportService 
+from ..utils.security import get_current_user
 from ..models.user import User
-from ..services.gemini_service import GeminiService
-from ..services.document_processor import DocumentProcessor
-from fastapi import HTTPException, status
 
-logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/analysis", tags=["Document Analysis"])
+analysis_service = AnalysisService() # Init service 1 lần
 
-class AnalysisService:
-    """Service for document analysis features"""
+@router.post("/summary", response_model=SummaryResponse)
+async def generate_summary(
+    request: SummaryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate document summary"""
+    result = await analysis_service.generate_summary(
+        db=db,
+        user=current_user,
+        document_id=request.document_id,
+        length=request.length
+    )
+    # Merge result with created_at if needed, or rely on schema default
+    return {**result, 'created_at': datetime.utcnow()}
+
+@router.post("/concepts", response_model=ConceptsResponse)
+async def extract_concepts(
+    request: ConceptsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Extract key concepts"""
+    return await analysis_service.extract_concepts(
+        db=db,
+        user=current_user,
+        document_id=request.document_id,
+        max_concepts=request.max_concepts
+    )
+
+@router.post("/quiz", response_model=QuizResponse)
+async def generate_quiz(
+    request: QuizRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate quiz"""
+    return await analysis_service.generate_quiz(
+        db=db,
+        user=current_user,
+        document_id=request.document_id,
+        num_questions=request.num_questions,
+        difficulty=request.difficulty
+    )
+
+# --- EXPORT FEATURES ---
+
+@router.post("/summary/export/pdf")
+async def export_summary_pdf(
+    request: SummaryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate summary and export to PDF"""
+    # 1. Tạo nội dung tóm tắt
+    result = await analysis_service.generate_summary(
+        db=db,
+        user=current_user,
+        document_id=request.document_id,
+        length=request.length
+    )
     
-    def __init__(self):
-        self.gemini_service = GeminiService()
-        self.doc_processor = DocumentProcessor()
+    # 2. Xuất ra file PDF
+    export_service = ExportService()
+    pdf_path = export_service.export_summary_to_pdf(
+        document_title=result['document_title'],
+        summary=result['summary'],
+        metadata={
+            'length': result['length'],
+            'word_count': result['word_count']
+        }
+    )
     
-    async def generate_summary(
-        self,
-        db: Session,
-        user: User,
-        document_id: int,
-        length: str = "medium"
-    ) -> Dict[str, Any]:
-        """Generate document summary"""
-        try:
-            # Get document
-            document = db.query(Document).filter(
-                Document.id == document_id,
-                Document.user_id == user.id,
-                Document.processed == True
-            ).first()
-            
-            if not document:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Document not found or not processed"
-                )
-            
-            # Extract text
-            logger.info(f"📄 Extracting text from {document.file_path}")
-            if document.file_path.endswith('.pdf'):
-                text = self.doc_processor.extract_pdf(document.file_path)
-            elif document.file_path.endswith('.docx'):
-                text = self.doc_processor.extract_docx(document.file_path)
-            elif document.file_path.endswith('.txt'):
-                text = self.doc_processor.extract_txt(document.file_path)
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Unsupported file type"
-                )
-            
-            if len(text) < 100:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Document too short to summarize"
-                )
-            
-            # Generate summary
-            logger.info(f"🤖 Generating {length} summary...")
-            summary = await self.gemini_service.generate_summary(text, length)
-            
-            word_count = len(summary.split())
-            
-            return {
-                'document_id': document.id,
-                'document_title': document.title,
-                'summary': summary,
-                'length': length,
-                'word_count': word_count
-            }
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"❌ Error generating summary: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to generate summary: {str(e)}"
-            )
+    # 3. Trả về file
+    filename = os.path.basename(pdf_path)
+    return FileResponse(
+        path=pdf_path,
+        media_type='application/pdf',
+        filename=filename,
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@router.post("/quiz/export/pdf")
+async def export_quiz_pdf(
+    request: QuizRequest,
+    include_answers: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate quiz and export to PDF"""
+    # 1. Tạo nội dung Quiz
+    result = await analysis_service.generate_quiz(
+        db=db,
+        user=current_user,
+        document_id=request.document_id,
+        num_questions=request.num_questions,
+        difficulty=request.difficulty
+    )
     
-    async def extract_concepts(
-        self,
-        db: Session,
-        user: User,
-        document_id: int,
-        max_concepts: int = 10
-    ) -> Dict[str, Any]:
-        """Extract key concepts from document"""
-        try:
-            # Get document
-            document = db.query(Document).filter(
-                Document.id == document_id,
-                Document.user_id == user.id,
-                Document.processed == True
-            ).first()
-            
-            if not document:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Document not found or not processed"
-                )
-            
-            # Extract text
-            logger.info(f"📄 Extracting text from {document.file_path}")
-            if document.file_path.endswith('.pdf'):
-                text = self.doc_processor.extract_pdf(document.file_path)
-            elif document.file_path.endswith('.docx'):
-                text = self.doc_processor.extract_docx(document.file_path)
-            elif document.file_path.endswith('.txt'):
-                text = self.doc_processor.extract_txt(document.file_path)
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Unsupported file type"
-                )
-            
-            # Extract concepts
-            logger.info(f"🔍 Extracting top {max_concepts} concepts...")
-            concepts = await self.gemini_service.extract_key_concepts(text, max_concepts)
-            
-            return {
-                'document_id': document.id,
-                'document_title': document.title,
-                'concepts': concepts,
-                'count': len(concepts)
-            }
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"❌ Error extracting concepts: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to extract concepts: {str(e)}"
-            )
+    # 2. Xuất ra file PDF
+    export_service = ExportService()
+    pdf_path = export_service.export_quiz_to_pdf(
+        document_title=result['document_title'],
+        questions=result['questions'],
+        difficulty=result['difficulty'],
+        include_answers=include_answers
+    )
     
-    async def generate_quiz(
-        self,
-        db: Session,
-        user: User,
-        document_id: int,
-        num_questions: int = 5,
-        difficulty: str = "medium"
-    ) -> Dict[str, Any]:
-        """Generate quiz from document"""
-        try:
-            # Get document
-            document = db.query(Document).filter(
-                Document.id == document_id,
-                Document.user_id == user.id,
-                Document.processed == True
-            ).first()
-            
-            if not document:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Document not found or not processed"
-                )
-            
-            # Extract text
-            logger.info(f"📄 Extracting text from {document.file_path}")
-            if document.file_path.endswith('.pdf'):
-                text = self.doc_processor.extract_pdf(document.file_path)
-            elif document.file_path.endswith('.docx'):
-                text = self.doc_processor.extract_docx(document.file_path)
-            elif document.file_path.endswith('.txt'):
-                text = self.doc_processor.extract_txt(document.file_path)
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Unsupported file type"
-                )
-            
-            # Generate quiz
-            logger.info(f"📝 Generating {num_questions} questions ({difficulty})...")
-            questions = await self.gemini_service.generate_quiz(
-                text, 
-                num_questions, 
-                difficulty
-            )
-            
-            if not questions:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to generate quiz questions"
-                )
-            
-            return {
-                'document_id': document.id,
-                'document_title': document.title,
-                'questions': questions,
-                'difficulty': difficulty,
-                'total_questions': len(questions)
-            }
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"❌ Error generating quiz: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to generate quiz: {str(e)}"
-            )
+    # 3. Trả về file
+    filename = os.path.basename(pdf_path)
+    return FileResponse(
+        path=pdf_path,
+        media_type='application/pdf',
+        filename=filename,
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
