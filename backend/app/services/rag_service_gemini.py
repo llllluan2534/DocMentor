@@ -26,7 +26,7 @@ class RAGServiceGemini:
         self.gemini_service = GeminiService()
 
     # ============================================================================
-    # ✅ NEW: Extract sources from AI response
+    # 1. EXTRACT SOURCES (Helper Function)
     # ============================================================================
     def extract_sources_from_response(
         self,
@@ -36,23 +36,16 @@ class RAGServiceGemini:
     ) -> Tuple[str, List[Dict]]:
         """
         Extract source citations from AI response and map to actual documents
-        
-        Args:
-            answer_text: Raw AI response with citations [1], [2], etc.
-            retrieved_chunks: Original chunks used for context
-            doc_map: Mapping of document IDs to Document objects
-            
-        Returns:
-            Tuple of (cleaned_text, sources_list)
         """
         sources = []
         citation_map = {}
         
-        # Build map: citation number -> document info
+        # 1. Build map: Index (1, 2, 3...) -> Document Info
+        # retrieved_chunks đã được sort theo thứ tự đưa vào context cho AI
         for idx, chunk in enumerate(retrieved_chunks, 1):
             raw_doc_id = chunk.get('document_id')
             
-            # ⚡ FIX: Ép kiểu ID về int để tìm trong doc_map (DB dùng int)
+            # Ép kiểu ID về int
             try:
                 doc_id = int(raw_doc_id)
             except (ValueError, TypeError):
@@ -60,7 +53,7 @@ class RAGServiceGemini:
 
             doc = doc_map.get(doc_id)
             
-            # ⚡ FIX: Fallback lấy title từ metadata nếu không tìm thấy trong DB
+            # Fallback title
             doc_title = "Tài liệu không tên"
             if doc:
                 doc_title = doc.title
@@ -68,52 +61,52 @@ class RAGServiceGemini:
                 doc_title = chunk['metadata']['title']
 
             citation_map[idx] = {
-                'document_id': str(doc_id),
-                'document_title': doc_title, # Luôn có giá trị
+                'document_id': doc_id,
+                'document_title': doc_title, # ✅ Quan trọng: Phải có Title cho Frontend
                 'page_number': chunk.get('page_number'),
-                'similarity_score': chunk.get('score', 0.0)
+                'similarity_score': chunk.get('score', 0.0),
+                'text': chunk.get('text', '')[:200] + "..." # Snippet cho tooltip
             }
         
-        # Find all citations in text: [1], [2], [1, 2]
+        # 2. Regex tìm tất cả citation trong text: [1], [2], [1, 5]
         citation_pattern = r'\[(\d+(?:,\s*\d+)*)\]'
         citations = re.findall(citation_pattern, answer_text)
         
         # Collect unique cited sources
         cited_indices = set()
         for citation in citations:
-            nums = [int(n.strip()) for n in citation.split(',')]
+            # Tách [1, 2] thành 1 và 2
+            nums = [int(n.strip()) for n in citation.split(',') if n.strip().isdigit()]
             cited_indices.update(nums)
         
-        # Build sources list from actual citations
+        # 3. Build sources list (chỉ lấy những nguồn AI thực sự dùng)
         for idx in sorted(cited_indices):
             if idx in citation_map:
                 sources.append(citation_map[idx])
         
-        # Clean text: Remove [Nguồn X: ...] patterns but keep [1], [2]
+        # 4. Clean text
+        # Loại bỏ pattern [Nguồn X: ...] nếu có
+        cleaned_text = re.sub(r'\[(?:Nguồn|Source)\s*\d+:\s*[^\]]+\]', '', answer_text).strip()
+        
+        # Loại bỏ section "NGUỒN THAM KHẢO" ở cuối (AI hay tự thêm)
         cleaned_text = re.sub(
-            r'\[(?:Nguồn|Source)\s*\d+:\s*[^\]]+\]',
-            '',
-            answer_text
+            r'(?i)\n+━+\s*📚?\s*NGUỒN THAM KHẢO.*$', 
+            '', 
+            cleaned_text, 
+            flags=re.DOTALL
         ).strip()
         
-        # ✅ Remove "NGUỒN THAM KHẢO" section if exists (AI sometimes adds it)
-        cleaned_text = re.sub(
-            r'━+\s*📚\s*NGUỒN THAM KHẢO\s*━+.*$',
-            '',
-            cleaned_text,
-            flags=re.DOTALL | re.MULTILINE
-        ).strip()
-        
-        # If no explicit citations found, use top 3 chunks as sources
+        # 5. Fallback: Nếu AI trả lời nhưng quên trích dẫn [x], lấy top 3 chunks làm nguồn
         if not sources and retrieved_chunks:
-            for idx in range(min(3, len(retrieved_chunks))):
-                if idx + 1 in citation_map:
-                    sources.append(citation_map[idx + 1])
+            logger.warning("⚠️ AI forgot sources citation - adding top 3 automatically")
+            for idx in range(1, min(4, len(retrieved_chunks) + 1)):
+                if idx in citation_map:
+                    sources.append(citation_map[idx])
 
         return cleaned_text, sources
 
     # ============================================================================
-    # Main RAG Pipeline
+    # 2. MAIN QUERY FUNCTION
     # ============================================================================
     async def query_documents(
         self,
@@ -121,7 +114,7 @@ class RAGServiceGemini:
         user: User,
         query_text: str,
         document_ids: List[int],
-        max_results: int = 5
+        max_results: int = 10 
     ) -> Dict[str, Any]:
         """Main RAG pipeline with source extraction"""
         start_time = time.time()
@@ -129,7 +122,7 @@ class RAGServiceGemini:
         try:
             logger.info(f"🔍 Processing query from user {user.id}: '{query_text}'")
 
-            # Step 1: Validate documents
+            # --- Step 1: Validate Documents ---
             documents = db.query(Document).filter(
                 Document.id.in_(document_ids),
                 Document.user_id == user.id,
@@ -138,6 +131,7 @@ class RAGServiceGemini:
             
             if not documents:
                 return {
+                    'query_id': None,
                     'answer': "Không tìm thấy tài liệu phù hợp hoặc tài liệu chưa được xử lý.",
                     'sources': [],
                     'confidence_score': 0.0,
@@ -147,27 +141,28 @@ class RAGServiceGemini:
             valid_doc_ids = [doc.id for doc in documents]
             doc_map = {doc.id: doc for doc in documents}
             
-            # Step 2: Search similar chunks
+            # --- Step 2: Semantic Search (Embeddings) ---
             logger.info(f"🔎 Searching chunks for docs: {valid_doc_ids}")
             matches = []
             
-            # Nếu user chọn nhiều file (ví dụ so sánh), ta chia đều quota cho mỗi file
-            # Ví dụ: max_results=15, chọn 2 file -> mỗi file lấy 8 chunks (làm tròn lên)
+            # Chiến lược tìm kiếm:
+            # Nếu user chọn > 1 file, ta tìm kiếm riêng lẻ từng file rồi gộp lại
+            # Để tránh việc 1 file dài chiếm hết kết quả tìm kiếm
             if len(valid_doc_ids) > 1:
-                chunks_per_doc = max(5, int(max_results / len(valid_doc_ids)) + 2) # +2 để dư ra chút
+                # Chia quota: Ví dụ max 15 results, 3 file -> mỗi file lấy 5 chunk
+                chunks_per_doc = max(3, int(max_results / len(valid_doc_ids)) + 2)
                 
                 for doc_id in valid_doc_ids:
                     doc_matches = await self.embedding_service.search_similar_chunks(
                         query=query_text,
-                        document_ids=[doc_id], # Search riêng từng file
+                        document_ids=[doc_id], 
                         top_k=chunks_per_doc
                     )
                     matches.extend(doc_matches)
                 
-                # Sort lại theo score để chunks tốt nhất lên đầu
+                # Sort lại theo độ tương đồng và cắt đúng số lượng cần thiết
                 matches.sort(key=lambda x: x['score'], reverse=True)
-                # Cắt bớt nếu quá nhiều (giới hạn context window)
-                matches = matches[:max_results * 2] 
+                matches = matches[:max_results + 5] # Lấy dư một chút
             else:
                 # Nếu chỉ 1 file thì search bình thường
                 matches = await self.embedding_service.search_similar_chunks(
@@ -176,19 +171,22 @@ class RAGServiceGemini:
                     top_k=max_results
                 )
             
+            # Check if relevant content found
             if not matches or matches[0]['score'] < 0.25:
                 return {
+                    'query_id': None,
                     'answer': NO_RESULT_RESPONSE.format(query=query_text),
                     'sources': [],
                     'confidence_score': 0.0,
                     'processing_time_ms': int((time.time() - start_time) * 1000)
                 }
             
-            # Step 3: Build context with new format
+            # --- Step 3: Build Context ---
             logger.info(f"📝 Building context from {len(matches)} chunks...")
+            # format_context sẽ đánh số [1], [2]... tương ứng thứ tự matches
             context = format_context(matches, doc_map)
             
-            # Step 4: Generate answer with prompt template
+            # --- Step 4: Call Gemini ---
             logger.info(f"🤖 Generating answer with optimized prompt...")
             raw_answer = await self.gemini_service.generate_answer(
                 query=query_text,
@@ -196,7 +194,7 @@ class RAGServiceGemini:
                 system_instruction=SYSTEM_INSTRUCTION
             )
             
-            # ✅ Step 5: Extract sources from response
+            # --- Step 5: Extract & Clean Sources ---
             logger.info(f"🔍 Extracting sources from AI response...")
             cleaned_answer, sources = self.extract_sources_from_response(
                 raw_answer,
@@ -204,24 +202,21 @@ class RAGServiceGemini:
                 doc_map
             )
             
-            # Step 6: Calculate confidence
+            # --- Step 6: Save to DB (History) ---
+            # Tính điểm tin cậy trung bình
             avg_similarity = sum(m['score'] for m in matches) / len(matches)
             confidence_score = min(avg_similarity * 1.5, 1.0)
             
-            # Step 7: Save query with document associations
             query_record = QueryModel(
                 user_id=user.id,
                 query_text=query_text,
-                response_text=cleaned_answer,  # ✅ Save cleaned version
-                sources=[{
-                    'document_id': m['document_id'],
-                    'chunk_index': m['chunk_index'],  
-                    'score': m['score']
-                } for m in matches], 
-                execution_time=int((time.time() - start_time) * 1000)
+                response_text=cleaned_answer, # Lưu text sạch
+                sources=sources,              # ✅ Lưu JSON sources đầy đủ (có title)
+                execution_time=int((time.time() - start_time) * 1000),
+                rating=None
             )
             
-            # ✅ Associate documents with query for relationship tracking
+            # Link query với documents (Bảng trung gian)
             query_record.documents = documents
             
             db.add(query_record)
@@ -233,15 +228,22 @@ class RAGServiceGemini:
             
             return {
                 'query_id': query_record.id,
-                'answer': cleaned_answer,  # ✅ Return cleaned answer
-                'sources': sources,  # ✅ Return extracted sources
+                'answer': cleaned_answer,
+                'sources': sources,
                 'confidence_score': round(confidence_score, 2),
                 'processing_time_ms': processing_time
             }
             
         except Exception as e:
             logger.error(f"❌ Error in RAG pipeline: {str(e)}")
-            raise
+            # Không raise lỗi để tránh crash UI, trả về thông báo lỗi nhẹ
+            return {
+                'query_id': None,
+                'answer': "Xin lỗi, tôi gặp sự cố khi xử lý yêu cầu này. Vui lòng thử lại.",
+                'sources': [],
+                'confidence_score': 0.0,
+                'processing_time_ms': 0
+            }
 
     # ==============================================================
     # 🔧 Private helper methods
