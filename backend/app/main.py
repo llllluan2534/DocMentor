@@ -24,7 +24,7 @@ allowed_origins = [
     "http://localhost:5174",
 
     # Production frontend
-    "https://docmentor-fe.vercel.app",
+    "https://doc-mentor-one.vercel.app",
 
     # Backend (Render)
     "https://docmentor-api.onrender.com",
