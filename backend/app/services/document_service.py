@@ -1,5 +1,6 @@
 # backend/app/services/document_service.py
 
+import mimetypes
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, asc
 from fastapi import HTTPException, status, UploadFile
@@ -12,13 +13,11 @@ from ..models.user import User
 from ..schemas.document import DocumentResponse, DocumentList, DocumentStats
 from ..utils.helpers import validate_file_type, validate_file_size, generate_unique_filename
 
-# ✅ 1. Import Supabase
 from supabase import create_client, Client
 from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# ✅ 2. Initialize Supabase Client (Lazy initialization prevents import crash if env vars are missing during build)
 try:
     supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 except Exception as e:
@@ -36,31 +35,33 @@ class DocumentService:
         """Upload and save document to Supabase Storage"""
         
         if not supabase:
-            raise HTTPException(status_code=500, detail="Storage service unavailable")
+            raise HTTPException(status_code=503, detail="Storage service unavailable")
 
-        # Validate file
+        # 1. Validate file
         file_ext = validate_file_type(file.filename)
-        content = await file.read()
+        # Đọc file vào bộ nhớ (lưu ý: serverless function thường giới hạn RAM, file < 50MB thì ổn)
+        content = await file.read() 
         file_size = len(content)
         validate_file_size(file_size)
         
-        # Generate unique filename: user_ID/filename_timestamp
+        # 2. Generate unique path
         unique_filename = f"user_{user.id}/{generate_unique_filename(user.id, file.filename)}"
         
+        # 3. Detect MIME type chính xác
+        mime_type = file.content_type or mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
+
         try:
-            logger.info(f"⬆️ Uploading to Supabase: {unique_filename}")
+            logger.info(f"⬆️ Uploading to Supabase: {unique_filename} ({file_size} bytes)")
             
-            # ✅ 3. Upload to Bucket
-            # Note: 'x-upsert' header might need to be passed differently depending on supabase-py version
-            # Newer versions use the `upsert=True` parameter in the upload method if available, 
-            # or `file_options` as you had.
-            supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
+            # ✅ Upload to Bucket
+            # upsert=True giúp ghi đè nếu file tên trùng (dù đã có timestamp để tránh)
+            res = supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
                 path=unique_filename,
                 file=content,
-                file_options={"content-type": file.content_type, "x-upsert": "true"}
+                file_options={"content-type": mime_type, "upsert": "true"}
             )
             
-            # ✅ 4. Get Public URL
+            # ✅ Get Public URL
             public_url = supabase.storage.from_(settings.SUPABASE_BUCKET).get_public_url(unique_filename)
             
             logger.info(f"✅ Upload success: {public_url}")
@@ -69,21 +70,21 @@ class DocumentService:
             logger.error(f"❌ Supabase Upload Error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-                detail=f"Lỗi upload file lên Cloud: {str(e)}"
+                detail=f"Upload failed: {str(e)}"
             )
         
-        # ✅ 5. Save to DB (Store URL in file_path)
+        # 4. Save to DB
         document = Document(
             user_id=user.id,
             title=title or file.filename,
-            file_path=public_url, # Store URL
-            file_type=file_ext[1:],
+            file_path=public_url, # Lưu URL công khai
+            file_type=file_ext[1:], # bỏ dấu chấm (.pdf -> pdf)
             file_size=file_size,
             metadata_={  
                 "original_filename": file.filename,
                 "storage_provider": "supabase",
-                "storage_path": unique_filename, # Store path for deletion
-                "mime_type": file.content_type
+                "storage_path": unique_filename, # Lưu path để sau này xóa file
+                "mime_type": mime_type
             },
             processed=False
         )
@@ -211,10 +212,12 @@ class DocumentService:
             storage_path = document.metadata_.get("storage_path") if document.metadata_ else None
             
             if storage_path and supabase:
+                # Supabase remove takes a list of paths
                 supabase.storage.from_(settings.SUPABASE_BUCKET).remove([storage_path])
                 logger.info(f"🗑️ Deleted from Supabase: {storage_path}")
         except Exception as e:
             logger.error(f"⚠️ Failed to delete from Supabase: {e}")
+            # Vẫn tiếp tục xóa trong DB để tránh rác data
         
         # 2. Delete from DB
         db.delete(document)

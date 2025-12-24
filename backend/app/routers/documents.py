@@ -70,27 +70,17 @@ def download_document(
 ):
     """
     Redirect to Supabase URL for viewing/downloading.
-    Fallback to local file if path is not a URL.
     """
     doc = DocumentService.get_document_by_id(db, document_id, current_user)
     
-    # 1. If it's a Supabase URL, redirect
-    if doc.file_path.startswith("http"):
+    # Vì file_path lưu URL Supabase, ta chỉ cần redirect
+    if doc.file_path and doc.file_path.startswith("http"):
         return RedirectResponse(url=doc.file_path)
-        
-    # 2. Fallback for old local files (Render Ephemeral disk)
-    if os.path.exists(doc.file_path):
-        mime_type, _ = mimetypes.guess_type(doc.file_path)
-        return FileResponse(
-            doc.file_path, 
-            media_type=mime_type or "application/octet-stream", 
-            filename=doc.title
-        )
-        
-    # 3. File lost
+    
+    # Fallback hiếm hoi nếu dữ liệu cũ bị lỗi
     raise HTTPException(
         status_code=404, 
-        detail="File not found on server. Please re-upload this document."
+        detail="File URL invalid or not found."
     )
 
 @router.get("/", response_model=DocumentList)
