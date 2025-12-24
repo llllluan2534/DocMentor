@@ -62,9 +62,12 @@ class DocumentService:
             )
             
             # ✅ Get Public URL
-            public_url = supabase.storage.from_(settings.SUPABASE_BUCKET).get_public_url(unique_filename)
+            project_url = settings.SUPABASE_URL
+            bucket_name = settings.SUPABASE_BUCKET
+            # Tạo URL thủ công để đảm bảo chính xác 100%
+            public_url = f"{project_url}/storage/v1/object/public/{bucket_name}/{unique_filename}"
             
-            logger.info(f"✅ Upload success: {public_url}")
+            logger.info(f"✅ Generated Public URL: {public_url}")
 
         except Exception as e:
             logger.error(f"❌ Supabase Upload Error: {str(e)}")
