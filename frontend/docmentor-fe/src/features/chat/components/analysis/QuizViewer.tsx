@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FiX, FiArrowRight } from "react-icons/fi";
+import { FiX, FiArrowRight, FiAlertTriangle } from "react-icons/fi"; // Import thêm icon cảnh báo
 import { QuizQuestion } from "@/services/analysis/analysisService";
 
 interface QuizViewerProps {
@@ -17,7 +17,37 @@ export const QuizViewer: React.FC<QuizViewerProps> = ({
   const [score, setScore] = useState(0);
   const [showResult, setShowResult] = useState(false);
 
+  // 🔥 FIX CRASH: Kiểm tra dữ liệu đầu vào trước khi render
+  if (!questions || questions.length === 0) {
+    return (
+      <div className="flex flex-col h-full bg-[#141126] border-t border-white/5 animate-slide-up">
+        <div className="flex items-center justify-between p-3 border-b border-white/5">
+          <h4 className="text-xs font-bold text-red-400 uppercase">
+            Lỗi tạo câu hỏi
+          </h4>
+          <button
+            onClick={onClose}
+            className="p-1 text-gray-400 hover:text-white"
+          >
+            <FiX size={14} />
+          </button>
+        </div>
+        <div className="flex flex-col items-center justify-center flex-1 p-6 text-center">
+          <FiAlertTriangle className="w-10 h-10 mb-3 text-red-500" />
+          <p className="text-sm text-gray-300">
+            AI không thể tạo câu hỏi từ tài liệu này. <br />
+            Có thể do nội dung quá ngắn hoặc server đang bận.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Lấy câu hỏi hiện tại an toàn
   const currentQ = questions[currentIndex];
+
+  // Nếu index vượt quá giới hạn (phòng hờ), cũng return null
+  if (!currentQ) return null;
 
   const handleSelect = (opt: string) => {
     if (isSubmitted) return;

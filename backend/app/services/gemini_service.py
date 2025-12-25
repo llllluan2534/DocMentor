@@ -8,11 +8,11 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 class GeminiService:
-    """Service for Google Gemini AI - using Gemini 1.5 Flash"""
+    """Service for Google Gemini AI"""
     
     def __init__(self):
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        self.model = genai.GenerativeModel('gemini-1.5-flash-001')
         
         self.safety_settings = {
             'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE',
@@ -21,7 +21,7 @@ class GeminiService:
             'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE',
         }
         
-        logger.info("✅ Gemini 1.5 Flash initialized")
+        logger.info("✅ Gemini 1.5 Flash-001 initialized")
     
     def _safe_get_text(self, response) -> str:
         """Safely extract text from Gemini response"""
