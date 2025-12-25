@@ -12,8 +12,6 @@ class GeminiService:
     
     def __init__(self):
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        # 🔥 FIX 1: Dùng tên model chuẩn (bỏ 'models/')
-        # 🔥 FIX 2: Thống nhất tên biến là self.model
         self.model = genai.GenerativeModel('gemini-1.5-flash')
         
         self.safety_settings = {

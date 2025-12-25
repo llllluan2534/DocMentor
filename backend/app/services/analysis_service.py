@@ -114,34 +114,42 @@ class AnalysisService:
             if not document:
                 raise HTTPException(status_code=404, detail="Document not found")
             
-            # ✅ Bước 1: Tải file
+            # 1. Tải file
             file_bytes = await self._download_file(document.file_path)
             
-            # ✅ Bước 2: Extract
+            # 2. Extract Text
             text = ""
             file_ext = document.file_type.lower()
+            try:
+                if 'pdf' in file_ext:
+                    text = self.doc_processor.extract_pdf(file_bytes)
+                elif 'docx' in file_ext:
+                    text = self.doc_processor.extract_docx(file_bytes)
+                elif 'txt' in file_ext:
+                    text = self.doc_processor.extract_txt(file_bytes)
+                else:
+                    text = self.doc_processor.extract_pdf(file_bytes)
+            except:
+                raise HTTPException(status_code=400, detail="Could not read document content")
             
-            if 'pdf' in file_ext:
-                text = self.doc_processor.extract_pdf(file_bytes)
-            elif 'docx' in file_ext:
-                text = self.doc_processor.extract_docx(file_bytes)
-            elif 'txt' in file_ext:
-                text = self.doc_processor.extract_txt(file_bytes)
-            else:
-                 try: text = self.doc_processor.extract_pdf(file_bytes)
-                 except: raise HTTPException(status_code=400, detail="Unsupported file type")
-            
-            # ✅ Bước 3: Generate Quiz
+            # 3. Generate Quiz
             logger.info(f"📝 Generating quiz...")
-            # Giới hạn context window cho Quiz
             questions = await self.gemini_service.generate_quiz(
-                text[:25000], 
+                text[:30000], 
                 num_questions, 
                 difficulty
             )
             
-            return questions # Gemini Service trả về list dict rồi
+            # 🔥 FIX QUAN TRỌNG: Luôn trả về cấu trúc Object khớp với QuizResponse
+            return {
+                "document_id": document.id,
+                "document_title": document.title,
+                "questions": questions, # Đây là list câu hỏi (có thể rỗng nếu lỗi)
+                "difficulty": difficulty,
+                "total_questions": len(questions)
+            }
             
         except Exception as e:
-            logger.error(f"❌ Error generating quiz: {str(e)}")
+            logger.error(f"❌ Error generating quiz in service: {str(e)}")
+            # Ngay cả khi lỗi crash, vẫn nên trả về format đúng để frontend không bị 500
             raise HTTPException(status_code=500, detail=f"Quiz generation failed: {str(e)}")
