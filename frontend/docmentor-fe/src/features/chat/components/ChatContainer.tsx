@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { ChatMessage, Conversation } from "@/types/chat.types";
 import { chatService } from "@/services/chat/chatService";
@@ -38,12 +38,21 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   const navigate = useNavigate();
   const location = useLocation();
 
+  // 🔥 REF QUAN TRỌNG: Ngăn chặn useEffect load lại dữ liệu khi đang tạo hội thoại mới
+  // Giúp tránh việc màn hình bị flash hoặc mất dữ liệu tạm thời
+  const isCreatingRef = useRef(false);
+
   const sessionId = propSessionId || searchParams.get("sessionId");
   const contextId = conversationId || sessionId;
 
-  // --- 1. LOAD HISTORY ---
+  // ============================================================
+  // 1. LOAD HISTORY (Tải lịch sử chat)
+  // ============================================================
   useEffect(() => {
     const loadData = async () => {
+      // Nếu đang trong quy trình tạo mới -> Dừng lại, không load history
+      if (isCreatingRef.current) return;
+
       if (!contextId) {
         setMessages([]);
         return;
@@ -59,6 +68,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
         const history = await chatService.getChatHistory(contextId);
 
+        // Logic khôi phục trạng thái upload tạm thời (nếu có từ trang trước)
         const navigationState = location.state as any;
         if (history.length > 0 && navigationState) {
           const firstUserMsgIndex = history.findIndex(
@@ -82,14 +92,18 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       }
     };
     loadData();
-  }, [contextId]);
+  }, [contextId, location.state]);
 
-  // --- 2. LOGIC TẠO CONVERSATION MỚI (TỪ HERO CHAT) ---
+  // ============================================================
+  // 2. LOGIC TẠO CONVERSATION MỚI (Từ HeroChat hoặc Input đầu tiên)
+  // ============================================================
   const handleCreateNewConversation = async (
     messageText: string,
     file?: File
   ) => {
-    // 1. Optimistic UI: Hiện tin nhắn User + Loading AI
+    isCreatingRef.current = true; // 🔒 Khóa useEffect lại
+
+    // 1. Optimistic UI: Hiện ngay tin nhắn User và Loading AI
     const tempUserMsgId = `msg-user-${Date.now()}`;
     const tempAiMsgId = `msg-ai-temp-${Date.now()}`;
 
@@ -127,10 +141,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           console.error("Upload failed", e);
           alert("Lỗi tải file. Vui lòng thử lại.");
           setMessages([]);
+          isCreatingRef.current = false;
           return;
         }
       }
 
+      // Chuẩn bị danh sách ID tài liệu
       const docIds = selectedDocuments
         .map((d) => parseInt(d.id, 10))
         .filter((id) => !isNaN(id));
@@ -138,52 +154,59 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
       const title = messageText.substring(0, 50) || "Cuộc trò chuyện mới";
 
-      // 3. Gọi service tạo Conversation (Service này đã tự gửi query đầu tiên bên trong nó rồi)
-      // ⚡ QUAN TRỌNG: Không cần gọi queryApiService.sendQuery thủ công nữa!
+      // 3. Gọi Service tạo hội thoại
+      // Lưu ý: chatService.createNewConversation đã bao gồm việc gửi query đầu tiên và chờ AI trả lời
       const newConv = await chatService.createNewConversation({
         title,
         initialMessage: messageText,
-        documentIds: docIds.map(String), // Service expect string/number array
+        documentIds: docIds.map(String),
       });
 
       if (!newConv || !newConv.id)
         throw new Error("Failed to create conversation");
 
-      // 4. Update URL (Quan trọng: replace để không back lại trang trống)
-      navigate(`/user/chat/${newConv.id}`, { replace: true });
-
-      // 5. Vì createNewConversation không trả về response AI text ngay,
-      // ta gọi getChatHistory để lấy tin nhắn AI thật vừa được tạo.
-      // Điều này đảm bảo dữ liệu đồng bộ 100% với backend.
+      // 4. Lấy dữ liệu thật ngay lập tức (Bao gồm cả trích dẫn vừa tạo)
       const history = await chatService.getChatHistory(newConv.id);
       setMessages(history);
 
-      // 6. Notify sidebar
+      // 5. Cập nhật Sidebar & Điều hướng URL
       if (onNewConversation) {
         onNewConversation(newConv);
       }
+
+      // replace: true để thay thế lịch sử duyệt web, tránh user back lại trang trống
+      navigate(`/user/chat/${newConv.id}`, { replace: true });
+
+      // Mở khóa ref sau 1s để ổn định
+      setTimeout(() => {
+        isCreatingRef.current = false;
+      }, 1000);
     } catch (error) {
       console.error("❌ Failed to start conversation:", error);
       setMessages([]);
       alert("Không thể bắt đầu cuộc trò chuyện. Vui lòng thử lại.");
+      isCreatingRef.current = false;
     } finally {
       setIsReplying(false);
     }
   };
 
-  // --- 3. HANDLE SEND MESSAGE (CHUNG - KHI ĐÃ CÓ CONVERSATION ID) ---
+  // ============================================================
+  // 3. HANDLE SEND MESSAGE (Gửi tin nhắn thông thường)
+  // ============================================================
   const handleSendMessage = async (messageText: string, file?: File) => {
     if ((!messageText.trim() && !file) || isReplying) return;
 
-    setIsReplying(true);
-
+    // Nếu chưa có ID -> Chuyển sang luồng tạo mới
     if (!contextId || contextId.startsWith("temp-")) {
       await handleCreateNewConversation(messageText, file);
       return;
     }
 
+    setIsReplying(true);
     const currentConvId = parseInt(contextId, 10);
 
+    // 1. Optimistic UI
     const userMessage: ChatMessage = {
       id: `msg-user-${Date.now()}`,
       text: messageText,
@@ -208,6 +231,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     setMessages((prev) => [...prev, userMessage, aiPlaceholder]);
 
     try {
+      // 2. Upload file & Prepare IDs
       let uploadedDocId = null;
       if (file) {
         const doc = await documentService.uploadDocument(file, file.name);
@@ -218,6 +242,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         .filter((id) => !isNaN(id));
       if (uploadedDocId) docIds.push(parseInt(String(uploadedDocId)));
 
+      // 3. Gửi câu hỏi
       const response = await queryApiService.sendQuery(
         messageText,
         docIds,
@@ -225,15 +250,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         currentConvId
       );
 
-      // Map sources
+      // 4. Map Sources (CamelCase)
       const mappedSources = (response.sources || []).map((s: any) => ({
         documentId: s.documentId ?? s.document_id ?? String(s.source_id ?? ""),
         documentTitle:
           s.documentTitle ?? s.document_title ?? s.title ?? "Tài liệu",
         pageNumber: s.pageNumber ?? s.page_number,
-        similarityScore: s.similarityScore ?? s.similarity_score,
+        similarityScore: s.similarityScore ?? s.similarity_score ?? s.score,
       }));
 
+      // 5. Update State
       setMessages((prev) =>
         prev.map((msg) => {
           if (msg.id === aiPlaceholder.id) {
@@ -242,7 +268,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               id: `msg-ai-${response.query_id}`,
               text: response.answer,
               status: "sent",
-              sources: mappedSources,
+              sources: mappedSources, // ✅ Sources hiển thị ngay lập tức
             };
           }
           if (msg.id === userMessage.id) return { ...msg, status: "sent" };
@@ -251,20 +277,26 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       );
     } catch (error) {
       console.error("❌ Send message error:", error);
+      // Xóa loading bubble nếu lỗi
       setMessages((prev) => prev.filter((m) => m.id !== aiPlaceholder.id));
+      // Đánh dấu tin nhắn user bị lỗi
       setMessages((prev) =>
         prev.map((m) =>
           m.id === userMessage.id ? { ...m, status: "error" } : m
         )
       );
-      alert("Lỗi gửi tin nhắn.");
+      alert("Lỗi gửi tin nhắn. Vui lòng thử lại.");
     } finally {
       setIsReplying(false);
     }
   };
 
-  // --- RENDER ---
-  if (isLoading) {
+  // ============================================================
+  // 4. RENDER
+  // ============================================================
+
+  // Loading khi mới vào trang (chỉ hiện khi không phải đang tạo mới)
+  if (isLoading && !isCreatingRef.current) {
     return (
       <div className="flex flex-col items-center justify-center h-full">
         <div className="w-10 h-10 border-4 rounded-full border-primary/30 border-t-primary animate-spin"></div>
@@ -274,7 +306,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
   return (
     <div className="relative flex flex-col h-full bg-transparent">
-      {messages.length === 0 ? (
+      {/* Hiển thị HeroChat khi:
+         1. Chưa có tin nhắn nào
+         2. VÀ không đang loading
+         3. VÀ không đang trong quá trình reply
+      */}
+      {messages.length === 0 && !isLoading && !isReplying ? (
         <HeroChat onStartChat={handleSendMessage} />
       ) : (
         <>
